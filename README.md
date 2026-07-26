@@ -1,2 +1,0 @@
-# digitalx-casebase
-digitalx-casebase
