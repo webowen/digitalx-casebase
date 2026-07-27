@@ -133,7 +133,7 @@ export default function AdminPage() {
     setFileName("");
     setSourceFile(null);
     setStepIndex(0);
-    setNotice("已载入一份测试资料。点击解析后会真实调用 OpenAI API，并产生少量费用。");
+    setNotice("已载入一份测试资料。点击解析后会真实调用当前配置的AI服务；是否收费取决于所选服务商及账户套餐。");
   }
 
   async function parseCase() {
@@ -322,7 +322,7 @@ export default function AdminPage() {
             </Link>
             <span className="hidden h-6 w-px bg-slate-200 md:block" />
             <span className="hidden rounded border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs text-emerald-700 md:inline-flex">
-              OpenAI 已接入 · 人工复核后发布
+              Gemini / OpenAI 已接入 · 人工复核后发布
             </span>
           </div>
           <div className="flex items-center gap-2">
@@ -471,7 +471,7 @@ export default function AdminPage() {
               </button>
 
               <div className="mt-4 rounded bg-slate-50 p-3 text-xs leading-5 text-slate-500">
-                <b className="text-slate-700">真实调用说明：</b>点击解析会调用 OpenAI API 并产生费用。原始资料不会被用于自动发布，解析结果只生成待复核草稿。
+                <b className="text-slate-700">真实调用说明：</b>点击解析会调用当前配置的AI服务。Gemini免费层仅建议处理公开资料；原始资料不会被自动发布，解析结果只生成待复核草稿。
               </div>
             </div>
           </aside>
@@ -604,7 +604,11 @@ export default function AdminPage() {
                   <div className="space-y-2">
                     <div className="flex items-center justify-between">
                       <div className="text-xs font-semibold text-slate-700">AI 字段证据</div>
-                      {parseMeta && <div className="text-[11px] text-slate-400">{parseMeta.model}</div>}
+                      {parseMeta && (
+                        <div className="text-[11px] text-slate-400">
+                          {parseMeta.provider === "gemini" ? "Gemini" : "OpenAI"} · {parseMeta.model}
+                        </div>
+                      )}
                     </div>
                     {assessments.map((assessment) => (
                       <div
