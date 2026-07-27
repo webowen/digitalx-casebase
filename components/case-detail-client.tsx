@@ -41,6 +41,32 @@ function preferenceKey(slug: string) {
   return `digitalx-reader-${slug}`;
 }
 
+function makeResearchChapters(report?: string): ReaderChapter[] {
+  if (!report?.trim()) return [];
+  const sections = report
+    .split(/\n(?=##\s+)/)
+    .map((section) => section.trim())
+    .filter(Boolean);
+
+  return sections.map((section, index) => {
+    const lines = section.split("\n");
+    const heading = lines[0]?.replace(/^##\s*/, "").trim();
+    const hasHeading = Boolean(lines[0]?.startsWith("## "));
+    const body = (hasHeading ? lines.slice(1) : lines)
+      .join("\n")
+      .split(/\n{2,}/)
+      .map((paragraph) => paragraph.replace(/^[-*]\s+/, "").trim())
+      .filter(Boolean);
+
+    return {
+      id: `research-${index + 1}`,
+      eyebrow: `联网研究 ${String(index + 1).padStart(2, "0")}`,
+      title: heading || (index === 0 ? "联网资料综合研究" : `补充研究 ${index + 1}`),
+      paragraphs: body,
+    };
+  });
+}
+
 function makeChapters(item?: SmartCityCase): ReaderChapter[] {
   if (!item) return [];
 
@@ -52,7 +78,7 @@ function makeChapters(item?: SmartCityCase): ReaderChapter[] {
     item.operationUnit ? `运营单位为${item.operationUnit}。` : "",
   ].filter(Boolean);
 
-  return [
+  const baseChapters: ReaderChapter[] = [
     {
       id: "abstract",
       eyebrow: "导读",
@@ -106,7 +132,8 @@ function makeChapters(item?: SmartCityCase): ReaderChapter[] {
       paragraphs: [item.expertView],
       note: "本部分属于案例库研判，不等同于项目建设单位或原始来源的公开结论。",
     },
-    {
+  ];
+  const sourceChapter: ReaderChapter = {
       id: "sources",
       eyebrow: "附录",
       title: "证据、来源与阅读说明",
@@ -115,8 +142,9 @@ function makeChapters(item?: SmartCityCase): ReaderChapter[] {
         item.sourceExcerpt ? `原文摘录：${item.sourceExcerpt}` : "",
       ].filter(Boolean),
       note: `来源类型：${item.sourceType}｜证据等级：${item.evidenceLevel}｜入库状态：${item.status}`,
-    },
-  ];
+    };
+
+  return [...baseChapters, ...makeResearchChapters(item.researchReport), sourceChapter];
 }
 
 function ResearchView({ item }: { item: SmartCityCase }) {
@@ -172,6 +200,23 @@ function ResearchView({ item }: { item: SmartCityCase }) {
         <p>{item.expertView}</p>
       </section>
 
+      {item.researchReport && (
+        <section className="research-section">
+          <p className="research-kicker">联网资料扩展</p>
+          <h2>完整案例研究</h2>
+          <div className="space-y-5">
+            {makeResearchChapters(item.researchReport).map((section) => (
+              <div key={section.id}>
+                <h3 className="text-base font-semibold text-slate-900">{section.title}</h3>
+                <div className="mt-2 space-y-3">
+                  {section.paragraphs?.map((paragraph) => <p key={paragraph}>{paragraph}</p>)}
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
       <section className="research-section">
         <h2>来源与证据</h2>
         <dl className="research-facts">
@@ -184,6 +229,20 @@ function ResearchView({ item }: { item: SmartCityCase }) {
           <a className="research-source-link" href={item.sourceUrl} target="_blank" rel="noreferrer">
             打开原始资料 ↗
           </a>
+        )}
+        {(item.researchSources?.length || 0) > 0 && (
+          <div className="mt-5">
+            <h3 className="text-sm font-semibold">联网核验来源</h3>
+            <ol className="mt-2 space-y-2 text-sm">
+              {item.researchSources?.map((source) => (
+                <li key={source.url}>
+                  <a className="research-source-link" href={source.url} target="_blank" rel="noreferrer">
+                    {source.title || source.url} ↗
+                  </a>
+                </li>
+              ))}
+            </ol>
+          </div>
         )}
         <div className="research-tags">
           {item.aiTags.map((tag) => <span key={tag}>#{tag}</span>)}
@@ -242,6 +301,20 @@ function ReaderContent({
             <a className="reader-source-link" href={item.sourceUrl} target="_blank" rel="noreferrer">
               查看原始资料 ↗
             </a>
+          )}
+          {chapter.id === "sources" && (item.researchSources?.length || 0) > 0 && (
+            <ol className="reader-numbered-list">
+              {item.researchSources?.map((source, index) => (
+                <li key={source.url}>
+                  <span>{String(index + 1).padStart(2, "0")}</span>
+                  <p>
+                    <a className="reader-source-link" href={source.url} target="_blank" rel="noreferrer">
+                      {source.title || source.url} ↗
+                    </a>
+                  </p>
+                </li>
+              ))}
+            </ol>
           )}
           {chapter.note && <aside className="reader-note">{chapter.note}</aside>}
         </section>
