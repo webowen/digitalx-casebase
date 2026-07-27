@@ -24,6 +24,7 @@ export async function POST(request: Request) {
 
   const sourceText = String(formData.get("sourceText") || "").trim();
   const sourceUrl = String(formData.get("sourceUrl") || "").trim();
+  const researchMode = String(formData.get("researchMode") || "") === "true";
   const fileValue = formData.get("file");
   const file = fileValue instanceof File && fileValue.size > 0 ? fileValue : null;
 
@@ -41,7 +42,7 @@ export async function POST(request: Request) {
   }
 
   try {
-    const parsed = await parseCaseWithProvider({ sourceText, sourceUrl, file });
+    const parsed = await parseCaseWithProvider({ sourceText, sourceUrl, file, researchMode });
     const response: CaseParserResponse = {
       result: parsed.result,
       meta: {
@@ -50,6 +51,8 @@ export async function POST(request: Request) {
         responseId: parsed.responseId,
         inputTokens: parsed.inputTokens,
         outputTokens: parsed.outputTokens,
+        researchMode: parsed.researchMode,
+        searchQueryCount: parsed.searchQueryCount,
       },
     };
     return Response.json(response);
