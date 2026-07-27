@@ -1,6 +1,6 @@
 {
   "name": "digitalx-casebase",
-  "version": "1.0.0-prototype",
+  "version": "1.1.0-ai-parser-alpha.2",
   "private": true,
   "engines": {
     "node": ">=22.13.0"
@@ -42,5 +42,5 @@
     "wrangler": "4.92.0"
   },
   "type": "module",
-  "displayName": "DigitalX \u57ce\u5e02\u6570\u667a\u5e94\u7528\u6848\u4f8b\u5e93"
+  "displayName": "DigitalX 城市数智应用案例库"
 }
