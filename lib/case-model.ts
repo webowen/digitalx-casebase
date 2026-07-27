@@ -14,6 +14,16 @@ export type EvidenceLevel = "强" | "中" | "弱";
 
 export type PublishStatus = "已发布" | "待复核" | "草稿";
 
+export type LocationMethod =
+  | "source_exact"
+  | "province_capital_default"
+  | "city_center_inferred";
+
+export type CaseResearchSource = {
+  title: string;
+  url: string;
+};
+
 export type SmartCityCase = {
   id: string;
   slug: string;
@@ -28,6 +38,8 @@ export type SmartCityCase = {
   lng: number;
   lat: number;
   locationConfidence: number;
+  locationMethod?: LocationMethod;
+  locationReason?: string;
   coverageType: "单点项目" | "城市级平台" | "区县级场景" | "省域统筹" | "园区示范";
   status: PublishStatus;
   sourceType: "政策文件" | "新闻报道" | "招投标公告" | "企业案例" | "会议材料" | "研究报告";
@@ -47,6 +59,9 @@ export type SmartCityCase = {
   fundingSource?: string;
   implementationUnit?: string;
   operationUnit?: string;
+  researchReport?: string;
+  researchSources?: CaseResearchSource[];
+  researchQueries?: string[];
   importedAt?: string;
   updatedAt?: string;
 };
