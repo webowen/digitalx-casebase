@@ -53,6 +53,8 @@ const emptyCase: SmartCityCase = {
   lng: 114.0579,
   lat: 22.5431,
   locationConfidence: 0.62,
+  locationMethod: "city_center_inferred",
+  locationReason: "新建案例默认使用深圳市中心作为地图展示锚点。",
   coverageType: "城市级平台",
   status: "草稿",
   sourceType: "招投标公告",
@@ -72,6 +74,9 @@ const emptyCase: SmartCityCase = {
   fundingSource: "",
   implementationUnit: "",
   operationUnit: "",
+  researchReport: "",
+  researchSources: [],
+  researchQueries: [],
 };
 
 function lines(value: string) {
@@ -104,6 +109,7 @@ export default function AdminPage() {
   const [assessments, setAssessments] = useState<CaseFieldAssessment[]>([]);
   const [reviewItems, setReviewItems] = useState<string[]>([]);
   const [parseMeta, setParseMeta] = useState<CaseParserResponse["meta"] | null>(null);
+  const [researchMode, setResearchMode] = useState(true);
   const [localCases, setLocalCases] = useState<SmartCityCase[]>([]);
   const [stepIndex, setStepIndex] = useState(0);
   const [parsing, setParsing] = useState(false);
@@ -161,6 +167,7 @@ export default function AdminPage() {
     const formData = new FormData();
     formData.set("sourceText", activeText);
     formData.set("sourceUrl", sourceUrl);
+    formData.set("researchMode", String(researchMode));
     if (activeFile) formData.set("file", activeFile);
 
     try {
@@ -189,9 +196,13 @@ export default function AdminPage() {
         slug: createSlug(parsed.title || "case"),
         year: parsed.year || new Date().getFullYear(),
         status: "草稿",
-        lng: 0,
-        lat: 0,
-        locationConfidence: locationAssessment?.confidence || 0,
+        lng: parsed.lng,
+        lat: parsed.lat,
+        locationConfidence: parsed.locationConfidence || locationAssessment?.confidence || 0,
+        locationMethod: parsed.locationMethod,
+        locationReason: parsed.locationReason,
+        researchSources: payload.result.researchSources,
+        researchQueries: payload.result.researchQueries,
         sourceUrl,
         sourceNote: `由 AI 从${activeFile ? `文件“${activeFile.name}”` : "粘贴正文"}生成草稿；所有字段需人工复核后发布。`,
         sourceExcerpt: parsed.sourceExcerpt || activeText.slice(0, 420),
@@ -205,7 +216,11 @@ export default function AdminPage() {
       setParseMeta(payload.meta);
       setParsing(false);
       setStepIndex(2);
-      setNotice(`真实 AI 解析完成：生成了可编辑草稿，并标记 ${payload.result.reviewItems.length} 项人工核验事项。`);
+      setNotice(
+        payload.meta.researchMode
+          ? `联网研究完成：生成结构化草稿、长篇研究内容和 ${payload.result.researchSources.length} 个可追溯来源。`
+          : `真实 AI 解析完成：生成了可编辑草稿，并标记 ${payload.result.reviewItems.length} 项人工核验事项。`,
+      );
     } catch (error) {
       setStepIndex(0);
       setErrors([error instanceof Error ? error.message : "AI 解析失败，请稍后重试。"]);
@@ -281,6 +296,7 @@ export default function AdminPage() {
     setAssessments([]);
     setReviewItems([]);
     setParseMeta(null);
+    setResearchMode(true);
     setStepIndex(item.status === "已发布" ? 4 : item.status === "待复核" ? 3 : 2);
     setNotice(`正在编辑：${item.title}`);
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -296,6 +312,7 @@ export default function AdminPage() {
     setAssessments([]);
     setReviewItems([]);
     setParseMeta(null);
+    setResearchMode(true);
     setStepIndex(0);
     setErrors([]);
     setNotice("");
@@ -470,6 +487,21 @@ export default function AdminPage() {
                 {parsing ? "AI 正在阅读与提取…" : "开始真实AI结构化解析"}
               </button>
 
+              <label className="mt-3 flex items-start gap-2 rounded border border-teal-100 bg-teal-50/70 p-3">
+                <input
+                  type="checkbox"
+                  checked={researchMode}
+                  onChange={(event) => setResearchMode(event.target.checked)}
+                  className="mt-0.5 accent-teal-700"
+                />
+                <span className="text-xs leading-5 text-teal-900">
+                  <b>联网研究并扩展长文</b>
+                  <span className="block text-teal-700">
+                    自动调用 Google Search 补充官方公告、招投标、建设单位和媒体资料。会增加 Token 与搜索调用量。
+                  </span>
+                </span>
+              </label>
+
               <div className="mt-4 rounded bg-slate-50 p-3 text-xs leading-5 text-slate-500">
                 <b className="text-slate-700">真实调用说明：</b>点击解析会调用当前配置的AI服务。Gemini免费层仅建议处理公开资料；原始资料不会被自动发布，解析结果只生成待复核草稿。
               </div>
@@ -572,6 +604,21 @@ export default function AdminPage() {
                   className="admin-textarea h-20"
                 />
               </label>
+
+              <label className="block">
+                <span className="flex items-center justify-between text-xs font-medium text-slate-600">
+                  <span>联网案例研究长文</span>
+                  <span className="font-normal text-slate-400">
+                    {(caseItem.researchReport || "").length.toLocaleString()} 字符
+                  </span>
+                </span>
+                <textarea
+                  value={caseItem.researchReport || ""}
+                  onChange={(event) => update("researchReport", event.target.value)}
+                  placeholder="开启“联网研究并扩展长文”后，这里会生成带章节的案例研究。"
+                  className="admin-textarea min-h-[420px]"
+                />
+              </label>
             </div>
           </section>
 
@@ -638,6 +685,28 @@ export default function AdminPage() {
                 {parseMeta && (
                   <div className="rounded bg-slate-50 p-2.5 text-[11px] leading-5 text-slate-500">
                     本次调用：输入 {parseMeta.inputTokens.toLocaleString()} tokens · 输出 {parseMeta.outputTokens.toLocaleString()} tokens
+                    {parseMeta.researchMode ? ` · 联网检索 ${parseMeta.searchQueryCount} 组` : ""}
+                  </div>
+                )}
+                {(caseItem.researchSources?.length || 0) > 0 && (
+                  <div className="rounded border border-slate-200 p-3">
+                    <div className="text-xs font-semibold text-slate-700">
+                      联网来源（{caseItem.researchSources?.length}）
+                    </div>
+                    <ul className="mt-2 space-y-2 text-xs leading-5">
+                      {caseItem.researchSources?.map((source) => (
+                        <li key={source.url}>
+                          <a
+                            href={source.url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-teal-700 underline decoration-teal-200 underline-offset-2 hover:text-teal-900"
+                          >
+                            {source.title || source.url}
+                          </a>
+                        </li>
+                      ))}
+                    </ul>
                   </div>
                 )}
               </div>
@@ -685,7 +754,8 @@ export default function AdminPage() {
                   />
                 </label>
                 <p className="rounded bg-slate-50 p-2.5 text-xs leading-5 text-slate-500">
-                  AI 只提取文字中的行政区划，不猜测经纬度。发布前请人工确认地图坐标；未确认时保持 0, 0。
+                  AI 会优先采用原文位置；只明确省份时，以省会城市中心作为地图展示锚点。所有推断位置仍需人工确认。
+                  {caseItem.locationReason ? ` 当前说明：${caseItem.locationReason}` : ""}
                 </p>
               </div>
             </section>
