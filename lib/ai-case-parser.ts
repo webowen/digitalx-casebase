@@ -1,8 +1,12 @@
 import type { SmartCityCase } from "./case-model";
 
-export const CASE_PARSER_MODEL = "gpt-5.6-sol";
+export const DEFAULT_AI_CASE_PARSER_PROVIDER = "gemini";
+export const OPENAI_CASE_PARSER_MODEL = "gpt-5.6-sol";
+export const GEMINI_CASE_PARSER_MODEL = "gemini-3.5-flash";
 export const MAX_CASE_SOURCE_CHARACTERS = 80_000;
 export const MAX_CASE_PDF_BYTES = 8 * 1024 * 1024;
+
+export type AiCaseParserProvider = "gemini" | "openai";
 
 export const assessmentFields = [
   "title",
@@ -63,6 +67,7 @@ export type CaseParserOutput = {
 export type CaseParserResponse = {
   result: CaseParserOutput;
   meta: {
+    provider: AiCaseParserProvider;
     model: string;
     responseId: string;
     inputTokens: number;
