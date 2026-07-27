@@ -1,4 +1,8 @@
-import type { SmartCityCase } from "./case-model";
+import type {
+  CaseResearchSource,
+  LocationMethod,
+  SmartCityCase,
+} from "./case-model";
 
 export const DEFAULT_AI_CASE_PARSER_PROVIDER = "gemini";
 export const OPENAI_CASE_PARSER_MODEL = "gpt-5.6-sol";
@@ -54,6 +58,12 @@ export type ParsedCaseFields = Pick<
   | "fundingSource"
   | "implementationUnit"
   | "operationUnit"
+  | "lng"
+  | "lat"
+  | "locationConfidence"
+  | "locationMethod"
+  | "locationReason"
+  | "researchReport"
 >;
 
 export type CaseParserOutput = {
@@ -62,6 +72,8 @@ export type CaseParserOutput = {
   case: ParsedCaseFields;
   fieldAssessments: CaseFieldAssessment[];
   reviewItems: string[];
+  researchSources: CaseResearchSource[];
+  researchQueries: string[];
 };
 
 export type CaseParserResponse = {
@@ -72,6 +84,8 @@ export type CaseParserResponse = {
     responseId: string;
     inputTokens: number;
     outputTokens: number;
+    researchMode: boolean;
+    searchQueryCount: number;
   };
 };
 
@@ -84,7 +98,15 @@ const stringArraySchema = {
 export const caseParserJsonSchema = {
   type: "object",
   additionalProperties: false,
-  required: ["compatible", "incompatibilityReason", "case", "fieldAssessments", "reviewItems"],
+  required: [
+    "compatible",
+    "incompatibilityReason",
+    "case",
+    "fieldAssessments",
+    "reviewItems",
+    "researchSources",
+    "researchQueries",
+  ],
   properties: {
     compatible: { type: "boolean" },
     incompatibilityReason: stringSchema,
@@ -116,6 +138,12 @@ export const caseParserJsonSchema = {
         "fundingSource",
         "implementationUnit",
         "operationUnit",
+        "lng",
+        "lat",
+        "locationConfidence",
+        "locationMethod",
+        "locationReason",
+        "researchReport",
       ],
       properties: {
         title: stringSchema,
@@ -160,6 +188,15 @@ export const caseParserJsonSchema = {
         fundingSource: stringSchema,
         implementationUnit: stringSchema,
         operationUnit: stringSchema,
+        lng: { type: "number", minimum: -180, maximum: 180 },
+        lat: { type: "number", minimum: -90, maximum: 90 },
+        locationConfidence: { type: "number", minimum: 0, maximum: 1 },
+        locationMethod: {
+          type: "string",
+          enum: ["source_exact", "province_capital_default", "city_center_inferred"] satisfies LocationMethod[],
+        },
+        locationReason: stringSchema,
+        researchReport: stringSchema,
       },
     },
     fieldAssessments: {
@@ -185,6 +222,19 @@ export const caseParserJsonSchema = {
       },
     },
     reviewItems: stringArraySchema,
+    researchSources: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["title", "url"],
+        properties: {
+          title: stringSchema,
+          url: stringSchema,
+        },
+      },
+    },
+    researchQueries: stringArraySchema,
   },
 } as const;
 
