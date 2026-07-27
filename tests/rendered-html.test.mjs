@@ -51,6 +51,8 @@ test("renders the real AI parser entry in the admin workspace", async () => {
   const html = await response.text();
   assert.match(html, /Gemini \/ OpenAI 已接入/);
   assert.match(html, /开始真实AI结构化解析/);
+  assert.match(html, /联网研究并扩展长文/);
+  assert.match(html, /只明确省份时，以省会城市中心作为地图展示锚点/);
 });
 
 test("rejects an empty AI parse request before calling the model", async () => {
