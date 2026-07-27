@@ -6,11 +6,12 @@ import {
   type AiCaseParserProvider,
   type CaseParserOutput,
 } from "./ai-case-parser";
+import { applyLocationFallback } from "./location-resolution";
 
 export const parserInstructions = `你是 DigitalX 城市数智应用案例库的资料解析器。你的任务是从用户提供的原始资料中提取可复核的智慧城市案例草稿。
 
 必须遵守：
-1. 只根据原始资料提取，不得用常识补齐资料没有提供的事实。
+1. 原始资料明确提供的事实优先；联网研究资料只能作为补充，并必须保留可验证来源。
 2. 未明确的信息使用空字符串、空数组或 year=0，不得猜测单位、金额、成效和时间。
 3. title、summary、painPoints、solution、outcomes 应使用简洁准确的中文。
 4. sourceExcerpt 和每项 evidence 必须是原始资料中可定位的短摘录，不得改写成不存在的引文。
@@ -20,10 +21,26 @@ export const parserInstructions = `你是 DigitalX 城市数智应用案例库�
 8. 如果输入不是智慧城市、城市治理或城市数字化项目资料，compatible=false，并说明原因；仍按 schema 返回空白案例对象。
 9. AI 只生成草稿，最终内容必须由人工复核后发布。`;
 
+const locationInstructions = `位置补全规则：
+1. province、city、lng、lat 都必须返回可用值。
+2. 原文明确到市或区县时，按原文行政区划定位；没有项目点坐标时，可使用城市中心作为地图展示锚点，并设置 locationMethod=city_center_inferred。
+3. 原文只明确省份且项目属于省级范围时，city 使用省会城市，lng/lat 使用省会中心作为展示锚点，locationMethod=province_capital_default，locationConfidence 不高于 0.55。
+4. 例如原文只有“湖北省”，应返回 province=湖北省、city=武汉市，并明确说明武汉只是省级项目的地图展示锚点。
+5. 原文给出可核验的精确城市或项目位置时，locationMethod=source_exact。
+6. 坐标用于高德地图展示，请尽量返回 GCJ-02 坐标；任何推断位置都必须 needsReview=true，绝不能冒充原文事实。`;
+
+const researchInstructions = `联网研究规则：
+1. 围绕项目名称、建设单位、实施单位、产品名称和关键技术组合生成多组检索词，优先搜索政府官网、公共资源交易平台、招投标公告、建设或运营单位官网、权威媒体和可追溯公众号文章。
+2. 对同一事实进行交叉核验，区分“原始资料明确”“联网来源补充”“案例库分析判断”。
+3. researchReport 写成完整中文案例研究，使用 Markdown 二级标题组织，优先覆盖：项目背景、建设目标、组织与投资、总体架构、数据体系、功能模块、实施过程、运营机制、成效证据、问题边界、可复制经验、时间线和待核验事项。
+4. 公开资料充分时目标为 3000—12000 个中文字符；资料不足时宁可明确写“未检索到”，不能重复灌水或编造内容。
+5. researchSources 只填写本次实际检索并用于报告的来源；researchQueries 填写实际检索词。`;
+
 type ProviderInput = {
   sourceText: string;
   sourceUrl: string;
   file: File | null;
+  researchMode: boolean;
 };
 
 export type ProviderResult = {
@@ -32,6 +49,8 @@ export type ProviderResult = {
   responseId: string;
   inputTokens: number;
   outputTokens: number;
+  researchMode: boolean;
+  searchQueryCount: number;
   result: CaseParserOutput;
 };
 
@@ -61,7 +80,7 @@ function arrayBufferToBase64(buffer: ArrayBuffer) {
   return btoa(binary);
 }
 
-function sourcePrompt(sourceText: string, sourceUrl: string, hasFile: boolean) {
+function sourcePrompt(sourceText: string, sourceUrl: string, hasFile: boolean, researchMode: boolean) {
   const sourceContext = [
     sourceUrl ? `来源网址（仅作元数据，不代表已抓取网页）：${sourceUrl}` : "",
     sourceText ? `原始资料正文：\n${sourceText}` : hasFile ? "请解析随请求附带的 PDF 原始资料。" : "",
@@ -70,6 +89,10 @@ function sourcePrompt(sourceText: string, sourceUrl: string, hasFile: boolean) {
     .join("\n\n");
 
   return `${parserInstructions}
+
+${locationInstructions}
+
+${researchMode ? researchInstructions : "本次不开启联网研究：researchReport、researchSources、researchQueries 返回空值。"}
 
 请把以下资料解析为智慧城市案例草稿，并返回严格符合 JSON Schema 的结果。
 
@@ -156,6 +179,49 @@ function extractGeminiText(payload: unknown) {
   return "";
 }
 
+function extractGeminiGrounding(payload: unknown) {
+  const root = objectValue(payload);
+  if (!Array.isArray(root?.steps)) return { queries: [] as string[], sources: [] as Array<{ title: string; url: string }> };
+
+  const queries: string[] = [];
+  const sources: Array<{ title: string; url: string }> = [];
+
+  for (const rawStep of root.steps) {
+    const step = objectValue(rawStep);
+    if (step?.type === "google_search_call") {
+      const argumentsValue = objectValue(step.arguments);
+      if (Array.isArray(argumentsValue?.queries)) {
+        for (const query of argumentsValue.queries) {
+          if (typeof query === "string" && query.trim()) queries.push(query.trim());
+        }
+      }
+    }
+    if (step?.type !== "model_output" || !Array.isArray(step.content)) continue;
+    for (const rawContent of step.content) {
+      const content = objectValue(rawContent);
+      if (!Array.isArray(content?.annotations)) continue;
+      for (const rawAnnotation of content.annotations) {
+        const annotation = objectValue(rawAnnotation);
+        if (
+          annotation?.type === "url_citation" &&
+          typeof annotation.url === "string" &&
+          annotation.url.startsWith("http")
+        ) {
+          sources.push({
+            title: typeof annotation.title === "string" ? annotation.title : annotation.url,
+            url: annotation.url,
+          });
+        }
+      }
+    }
+  }
+
+  return {
+    queries: Array.from(new Set(queries)),
+    sources: Array.from(new Map(sources.map((item) => [item.url, item])).values()),
+  };
+}
+
 function geminiUsage(payload: unknown) {
   const root = objectValue(payload);
   const usage = objectValue(root?.usage_metadata) || objectValue(root?.usage);
@@ -198,7 +264,7 @@ async function callGemini(input: ProviderInput): Promise<ProviderResult> {
       mime_type: "application/pdf",
     });
   }
-  content.push({ type: "text", text: sourcePrompt(input.sourceText, input.sourceUrl, Boolean(input.file)) });
+  content.push({ type: "text", text: sourcePrompt(input.sourceText, input.sourceUrl, Boolean(input.file), input.researchMode) });
 
   let response: Response;
   try {
@@ -212,6 +278,8 @@ async function callGemini(input: ProviderInput): Promise<ProviderResult> {
         model,
         store: false,
         input: content,
+        tools: input.researchMode ? [{ type: "google_search" }] : undefined,
+        generation_config: input.researchMode ? { thinking_level: "medium" } : { thinking_level: "low" },
         response_format: {
           type: "text",
           mime_type: "application/json",
@@ -232,12 +300,21 @@ async function callGemini(input: ProviderInput): Promise<ProviderResult> {
   if (!response.ok) throw classifyProviderError("gemini", response.status, payload);
 
   const root = objectValue(payload);
+  const grounding = extractGeminiGrounding(payload);
+  const parsed = parseJsonResult("gemini", extractGeminiText(payload));
+  const groundedResult = applyLocationFallback({
+    ...parsed,
+    researchQueries: grounding.queries.length > 0 ? grounding.queries : parsed.researchQueries,
+    researchSources: grounding.sources.length > 0 ? grounding.sources : parsed.researchSources,
+  });
   return {
     provider: "gemini",
     model,
     responseId: typeof root?.id === "string" ? root.id : "",
     ...geminiUsage(payload),
-    result: parseJsonResult("gemini", extractGeminiText(payload)),
+    researchMode: input.researchMode,
+    searchQueryCount: grounding.queries.length,
+    result: groundedResult,
   };
 }
 
@@ -282,7 +359,7 @@ async function callOpenAi(input: ProviderInput): Promise<ProviderResult> {
   }
   content.push({
     type: "input_text",
-    text: sourcePrompt(input.sourceText, input.sourceUrl, Boolean(input.file)),
+    text: sourcePrompt(input.sourceText, input.sourceUrl, Boolean(input.file), false),
   });
 
   let response: Response;
@@ -327,7 +404,9 @@ async function callOpenAi(input: ProviderInput): Promise<ProviderResult> {
     model,
     responseId: typeof root?.id === "string" ? root.id : "",
     ...openAiUsage(payload),
-    result: parseJsonResult("openai", extractOpenAiText(payload)),
+    researchMode: false,
+    searchQueryCount: 0,
+    result: applyLocationFallback(parseJsonResult("openai", extractOpenAiText(payload))),
   };
 }
 
