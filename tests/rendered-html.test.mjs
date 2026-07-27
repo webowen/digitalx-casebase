@@ -49,7 +49,7 @@ test("renders the real AI parser entry in the admin workspace", async () => {
 
   assert.equal(response.status, 200);
   const html = await response.text();
-  assert.match(html, /OpenAI 已接入/);
+  assert.match(html, /Gemini \/ OpenAI 已接入/);
   assert.match(html, /开始真实AI结构化解析/);
 });
 
