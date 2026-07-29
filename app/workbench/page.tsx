@@ -509,6 +509,7 @@ export default function MapWorkbench() {
               fill
               sizes="44px"
               priority
+              unoptimized
               className="brand-logo-image"
             />
           </span>

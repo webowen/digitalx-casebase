@@ -62,10 +62,10 @@ test("renders the real AI parser entry in the admin workspace", async () => {
   assert.match(html, /只明确省份时，以省会城市中心作为地图展示锚点/);
 });
 
-test("renders the V1.4 map case workbench without replacing the home page", async () => {
+test("renders the V1.4 map case workbench as the default home page", async () => {
   const worker = await loadWorker();
   const response = await worker.fetch(
-    new Request("http://localhost/workbench", {
+    new Request("http://localhost/", {
       headers: { accept: "text/html" },
     }),
     runtimeEnv,
@@ -85,6 +85,22 @@ test("renders the V1.4 map case workbench without replacing the home page", asyn
   assert.match(html, /当前工作台状态可分享/);
   assert.match(html, /省域/);
   assert.match(html, /项目阶段/);
+});
+
+test("keeps the V1.3 public home available as a legacy archive", async () => {
+  const worker = await loadWorker();
+  const response = await worker.fetch(
+    new Request("http://localhost/legacy", {
+      headers: { accept: "text/html" },
+    }),
+    runtimeEnv,
+    executionContext,
+  );
+
+  assert.equal(response.status, 200);
+  const html = await response.text();
+  assert.match(html, /从地图找到城市做过的数智项目/);
+  assert.match(html, /返回新版/);
 });
 
 test("uses only documented MarkerCluster render callback fields", async () => {
