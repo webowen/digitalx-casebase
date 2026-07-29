@@ -1,6 +1,6 @@
 {
   "name": "digitalx-casebase",
-  "version": "1.0.0-prototype",
+  "version": "1.3.0",
   "private": true,
   "engines": {
     "node": ">=22.13.0"
@@ -20,6 +20,7 @@
   "dependencies": {
     "drizzle-orm": "0.45.2",
     "next": "16.2.6",
+    "pdfjs-dist": "^5.4.530",
     "react": "19.2.6",
     "react-dom": "19.2.6"
   },
@@ -42,5 +43,5 @@
     "wrangler": "4.92.0"
   },
   "type": "module",
-  "displayName": "DigitalX \u57ce\u5e02\u6570\u667a\u5e94\u7528\u6848\u4f8b\u5e93"
+  "displayName": "DigitalX 城市数智应用案例库"
 }

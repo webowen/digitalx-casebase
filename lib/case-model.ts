@@ -14,6 +14,101 @@ export type EvidenceLevel = "强" | "中" | "弱";
 
 export type PublishStatus = "已发布" | "待复核" | "草稿";
 
+export type LocationMethod =
+  | "source_exact"
+  | "province_capital_default"
+  | "city_center_inferred";
+
+export type CaseResearchSource = {
+  title: string;
+  url: string;
+};
+
+export type CaseIdentityEvidence = {
+  title: string;
+  url: string;
+  quote: string;
+};
+
+export type CaseProjectIdentity = {
+  canonicalTitle: string;
+  candidates: string[];
+  aliases: string[];
+  confidence: number;
+  needsReview: boolean;
+  reason: string;
+  evidence: CaseIdentityEvidence[];
+};
+
+export type CaseArticleSectionId =
+  | "overview"
+  | "background"
+  | "objectives"
+  | "architecture"
+  | "capabilities"
+  | "delivery"
+  | "investment"
+  | "outcomes"
+  | "boundaries"
+  | "lessons"
+  | "timeline";
+
+export type CaseArticleSection = {
+  id: CaseArticleSectionId;
+  title: string;
+  summary: string;
+  paragraphs: string[];
+  points: string[];
+  evidenceRefs: string[];
+};
+
+export type CaseArticle = {
+  standfirst: string;
+  keyFindings: string[];
+  sections: CaseArticleSection[];
+};
+
+export type CaseMediaKind =
+  | "platform_ui"
+  | "dashboard"
+  | "architecture"
+  | "map"
+  | "site_photo"
+  | "document"
+  | "other";
+
+export type CaseMediaSourceKind = "pdf_page" | "web_image";
+
+export type CaseMediaCandidate = {
+  id: string;
+  sourceKind: CaseMediaSourceKind;
+  pageNumber: number;
+  sourceUrl: string;
+  nearbyText: string;
+  visualScore: number;
+};
+
+export type CaseMediaPlanItem = {
+  candidateId: string;
+  kind: CaseMediaKind;
+  sectionId: CaseArticleSectionId;
+  caption: string;
+  alt: string;
+  confidence: number;
+  needsReview: boolean;
+  reason: string;
+};
+
+export type CaseMediaAsset = CaseMediaPlanItem & {
+  id: string;
+  url: string;
+  sourceKind: CaseMediaSourceKind;
+  sourceUrl: string;
+  pageNumber: number;
+  included: boolean;
+  reviewed: boolean;
+};
+
 export type SmartCityCase = {
   id: string;
   slug: string;
@@ -28,6 +123,8 @@ export type SmartCityCase = {
   lng: number;
   lat: number;
   locationConfidence: number;
+  locationMethod?: LocationMethod;
+  locationReason?: string;
   coverageType: "单点项目" | "城市级平台" | "区县级场景" | "省域统筹" | "园区示范";
   status: PublishStatus;
   sourceType: "政策文件" | "新闻报道" | "招投标公告" | "企业案例" | "会议材料" | "研究报告";
@@ -47,6 +144,12 @@ export type SmartCityCase = {
   fundingSource?: string;
   implementationUnit?: string;
   operationUnit?: string;
+  researchReport?: string;
+  researchSources?: CaseResearchSource[];
+  researchQueries?: string[];
+  identity?: CaseProjectIdentity;
+  article?: CaseArticle;
+  media?: CaseMediaAsset[];
   importedAt?: string;
   updatedAt?: string;
 };

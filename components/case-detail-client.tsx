@@ -1,16 +1,23 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import {
   type CSSProperties,
   type MouseEvent as ReactMouseEvent,
+  type PointerEvent as ReactPointerEvent,
   useCallback,
   useEffect,
   useMemo,
   useRef,
   useState,
 } from "react";
-import { categoryColors, type SmartCityCase } from "@/lib/case-model";
+import {
+  categoryColors,
+  type CaseMediaAsset,
+  type SmartCityCase,
+} from "@/lib/case-model";
+import { normalizeArticle } from "@/lib/case-editorial";
 import { getLocalCases } from "@/lib/local-cases";
 
 type DetailMode = "read" | "research";
@@ -24,6 +31,7 @@ type ReaderChapter = {
   paragraphs?: string[];
   points?: string[];
   note?: string;
+  media?: CaseMediaAsset[];
 };
 
 type ReaderPreference = {
@@ -34,15 +42,96 @@ type ReaderPreference = {
   progress?: number;
 };
 
+type PageTurnState = {
+  direction: "next" | "previous";
+  fromPage: number;
+  toPage: number;
+};
+
 const PAGE_GAP_DESKTOP = 76;
 const PAGE_GAP_TABLET = 28;
+const PAGE_TURN_DURATION = 720;
+
+const mediaKindLabels: Record<CaseMediaAsset["kind"], string> = {
+  platform_ui: "平台界面",
+  dashboard: "驾驶舱 / 大屏",
+  architecture: "架构与流程",
+  map: "空间地图",
+  site_photo: "现场照片",
+  document: "原始资料",
+  other: "案例图片",
+};
 
 function preferenceKey(slug: string) {
-  return `digitalx-reader-${slug}`;
+  return `digitalx-reader-v2-${slug}`;
+}
+
+function makeResearchChapters(report?: string): ReaderChapter[] {
+  if (!report?.trim()) return [];
+  const sections = report
+    .split(/\n(?=##\s+)/)
+    .map((section) => section.trim())
+    .filter(Boolean);
+
+  return sections.map((section, index) => {
+    const lines = section.split("\n");
+    const heading = lines[0]?.replace(/^##\s*/, "").trim();
+    const hasHeading = Boolean(lines[0]?.startsWith("## "));
+    const body = (hasHeading ? lines.slice(1) : lines)
+      .join("\n")
+      .split(/\n{2,}/)
+      .map((paragraph) => paragraph.replace(/^[-*]\s+/, "").trim())
+      .filter(Boolean);
+
+    return {
+      id: `research-${index + 1}`,
+      eyebrow: `联网研究 ${String(index + 1).padStart(2, "0")}`,
+      title: heading || (index === 0 ? "联网资料综合研究" : `补充研究 ${index + 1}`),
+      paragraphs: body,
+    };
+  });
 }
 
 function makeChapters(item?: SmartCityCase): ReaderChapter[] {
   if (!item) return [];
+
+  const sourceChapter: ReaderChapter = {
+    id: "sources",
+    eyebrow: "附录",
+    title: "证据、来源与阅读说明",
+    paragraphs: [
+      item.sourceNote,
+      item.sourceExcerpt ? `原文摘录：${item.sourceExcerpt}` : "",
+    ].filter(Boolean),
+    note: `来源类型：${item.sourceType}｜证据等级：${item.evidenceLevel}｜入库状态：${item.status}`,
+  };
+
+  if (item.article?.sections.length) {
+    const article = normalizeArticle(item.article, item);
+    const articleChapters: ReaderChapter[] = article.sections.map((section, index) => ({
+      id: `article-${section.id}`,
+      eyebrow: `第 ${String(index + 1).padStart(2, "0")} 章`,
+      title: section.title,
+      paragraphs: [section.summary, ...section.paragraphs].filter(Boolean),
+      points: section.points,
+      note: section.evidenceRefs.length > 0 ? `证据关联：${section.evidenceRefs.join("、")}` : undefined,
+      media: (item.media || []).filter(
+        (asset) => asset.included && asset.reviewed && asset.sectionId === section.id,
+      ),
+    }));
+    return [
+      {
+        id: "abstract",
+        eyebrow: "导读",
+        title: "案例要点",
+        paragraphs: [article.standfirst],
+        points: article.keyFindings,
+        note: `正式名称核验置信度 ${Math.round((item.identity?.confidence || 0) * 100)}%。当前证据等级为“${item.evidenceLevel}”。`,
+      },
+      ...articleChapters,
+      sourceChapter,
+    ];
+  }
 
   const implementation = [
     item.projectStage ? `项目目前处于${item.projectStage}阶段。` : "",
@@ -52,7 +141,7 @@ function makeChapters(item?: SmartCityCase): ReaderChapter[] {
     item.operationUnit ? `运营单位为${item.operationUnit}。` : "",
   ].filter(Boolean);
 
-  return [
+  const baseChapters: ReaderChapter[] = [
     {
       id: "abstract",
       eyebrow: "导读",
@@ -106,17 +195,21 @@ function makeChapters(item?: SmartCityCase): ReaderChapter[] {
       paragraphs: [item.expertView],
       note: "本部分属于案例库研判，不等同于项目建设单位或原始来源的公开结论。",
     },
-    {
-      id: "sources",
-      eyebrow: "附录",
-      title: "证据、来源与阅读说明",
-      paragraphs: [
-        item.sourceNote,
-        item.sourceExcerpt ? `原文摘录：${item.sourceExcerpt}` : "",
-      ].filter(Boolean),
-      note: `来源类型：${item.sourceType}｜证据等级：${item.evidenceLevel}｜入库状态：${item.status}`,
-    },
   ];
+  return [...baseChapters, ...makeResearchChapters(item.researchReport), sourceChapter];
+}
+
+function estimateReadingMinutes(item: SmartCityCase, chapters: ReaderChapter[]) {
+  const content = [
+    item.title,
+    item.summary,
+    ...chapters.flatMap((chapter) => [
+      chapter.title,
+      ...(chapter.paragraphs || []),
+      ...(chapter.points || []),
+    ]),
+  ].join("");
+  return Math.max(3, Math.ceil(content.length / 460));
 }
 
 function ResearchView({ item }: { item: SmartCityCase }) {
@@ -131,14 +224,16 @@ function ResearchView({ item }: { item: SmartCityCase }) {
     ["覆盖类型", item.coverageType],
     ["坐标", `${item.lng.toFixed(4)}, ${item.lat.toFixed(4)}`],
     ["位置置信度", `${Math.round(item.locationConfidence * 100)}%`],
+    ["正式名称置信度", item.identity ? `${Math.round(item.identity.confidence * 100)}%` : ""],
   ].filter(([, value]) => value);
+  const article = item.article?.sections.length ? normalizeArticle(item.article, item) : null;
 
   return (
     <div className="research-sheet">
       <section>
         <p className="research-kicker">案例档案</p>
         <h1>{item.title}</h1>
-        <p className="research-summary">{item.summary}</p>
+        <p className="research-summary">{article?.standfirst || item.summary}</p>
       </section>
 
       <section className="research-section">
@@ -153,24 +248,93 @@ function ResearchView({ item }: { item: SmartCityCase }) {
         </dl>
       </section>
 
-      {[
-        ["建设背景 / 痛点", item.painPoints],
-        ["建设内容", item.solution],
-        ["项目成效", item.outcomes],
-      ].map(([title, values]) => (
-        <section key={title as string} className="research-section">
-          <h2>{title as string}</h2>
-          <ol className="research-list">
-            {(values as string[]).map((value) => <li key={value}>{value}</li>)}
-          </ol>
-        </section>
-      ))}
-
-      <section className="research-section research-judgement">
-        <p className="research-kicker">案例库研判</p>
-        <h2>专业判断与适用边界</h2>
-        <p>{item.expertView}</p>
-      </section>
+      {article ? (
+        <>
+          {article.keyFindings.length > 0 && (
+            <section className="research-section">
+              <p className="research-kicker">Executive summary</p>
+              <h2>关键结论</h2>
+              <ol className="research-list">
+                {article.keyFindings.map((value) => <li key={value}>{value}</li>)}
+              </ol>
+            </section>
+          )}
+          {article.sections.map((section, index) => (
+            <section key={section.id} className={`research-section ${section.id === "boundaries" ? "research-judgement" : ""}`}>
+              <p className="research-kicker">第 {String(index + 1).padStart(2, "0")} 章</p>
+              <h2>{section.title}</h2>
+              {section.summary && <p className="font-medium text-slate-700">{section.summary}</p>}
+              <div className="mt-3 space-y-3">
+                {section.paragraphs.map((paragraph) => <p key={paragraph}>{paragraph}</p>)}
+              </div>
+              {section.points.length > 0 && (
+                <ol className="research-list mt-4">
+                  {section.points.map((value) => <li key={value}>{value}</li>)}
+                </ol>
+              )}
+              {section.evidenceRefs.length > 0 && (
+                <div className="mt-3 text-xs text-slate-400">证据关联：{section.evidenceRefs.join("、")}</div>
+              )}
+              {(item.media || [])
+                .filter((asset) => asset.included && asset.reviewed && asset.sectionId === section.id)
+                .map((asset) => (
+                  <figure key={asset.id} className="mt-5 overflow-hidden rounded border border-slate-200 bg-white">
+                    <Image
+                      src={asset.url}
+                      alt={asset.alt}
+                      width={1600}
+                      height={1000}
+                      unoptimized
+                      className="h-auto w-full object-contain"
+                    />
+                    <figcaption className="border-t border-slate-100 px-4 py-3 text-xs leading-5 text-slate-500">
+                      {asset.caption}
+                      <span className="ml-2 text-slate-400">
+                        {asset.sourceKind === "pdf_page" ? `原始资料第${asset.pageNumber}页` : "原始网页图片"}
+                      </span>
+                    </figcaption>
+                  </figure>
+                ))}
+            </section>
+          ))}
+        </>
+      ) : (
+        <>
+          {[
+            ["建设背景 / 痛点", item.painPoints],
+            ["建设内容", item.solution],
+            ["项目成效", item.outcomes],
+          ].map(([title, values]) => (
+            <section key={title as string} className="research-section">
+              <h2>{title as string}</h2>
+              <ol className="research-list">
+                {(values as string[]).map((value) => <li key={value}>{value}</li>)}
+              </ol>
+            </section>
+          ))}
+          <section className="research-section research-judgement">
+            <p className="research-kicker">案例库研判</p>
+            <h2>专业判断与适用边界</h2>
+            <p>{item.expertView}</p>
+          </section>
+          {item.researchReport && (
+            <section className="research-section">
+              <p className="research-kicker">旧版联网资料扩展</p>
+              <h2>完整案例研究</h2>
+              <div className="space-y-5">
+                {makeResearchChapters(item.researchReport).map((section) => (
+                  <div key={section.id}>
+                    <h3 className="text-base font-semibold text-slate-900">{section.title}</h3>
+                    <div className="mt-2 space-y-3">
+                      {section.paragraphs?.map((paragraph) => <p key={paragraph}>{paragraph}</p>)}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
+        </>
+      )}
 
       <section className="research-section">
         <h2>来源与证据</h2>
@@ -185,6 +349,20 @@ function ResearchView({ item }: { item: SmartCityCase }) {
             打开原始资料 ↗
           </a>
         )}
+        {(item.researchSources?.length || 0) > 0 && (
+          <div className="mt-5">
+            <h3 className="text-sm font-semibold">联网核验来源</h3>
+            <ol className="mt-2 space-y-2 text-sm">
+              {item.researchSources?.map((source) => (
+                <li key={source.url}>
+                  <a className="research-source-link" href={source.url} target="_blank" rel="noreferrer">
+                    {source.title || source.url} ↗
+                  </a>
+                </li>
+              ))}
+            </ol>
+          </div>
+        )}
         <div className="research-tags">
           {item.aiTags.map((tag) => <span key={tag}>#{tag}</span>)}
         </div>
@@ -196,56 +374,124 @@ function ResearchView({ item }: { item: SmartCityCase }) {
 function ReaderContent({
   item,
   chapters,
+  clone = false,
 }: {
   item: SmartCityCase;
   chapters: ReaderChapter[];
+  clone?: boolean;
 }) {
+  const readingMinutes = estimateReadingMinutes(item, chapters);
   return (
     <>
-      <section className="reader-cover" id="cover" data-reader-anchor>
-        <div className="reader-cover-series">{item.category} · 城市数智案例</div>
+      <section
+        className="reader-cover"
+        id={clone ? undefined : "cover"}
+        data-reader-anchor={clone ? undefined : true}
+      >
+        <div className="reader-cover-masthead">
+          <div className="reader-cover-series">{item.category} · 城市数智案例</div>
+          <div className="reader-cover-issue">CASE / {item.year}</div>
+        </div>
         <div className="reader-cover-rule" />
         <div className="reader-cover-meta">
           <span style={{ color: categoryColors[item.category] }}>{item.category}</span>
-          <span>{item.city}</span>
+          <span>{item.province} · {item.city}</span>
           <span>{item.year}</span>
         </div>
         <h1>{item.title}</h1>
-        <p className="reader-deck">{item.summary}</p>
+        <p className="reader-deck">{item.article?.standfirst || item.summary}</p>
+        <dl className="reader-cover-facts">
+          <div>
+            <dt>建设主体</dt>
+            <dd>{item.owner || "待进一步核验"}</dd>
+          </div>
+          <div>
+            <dt>项目阶段</dt>
+            <dd>{item.projectStage || "公开信息未披露"}</dd>
+          </div>
+          <div>
+            <dt>证据等级</dt>
+            <dd>{item.evidenceLevel}</dd>
+          </div>
+        </dl>
         <div className="reader-cover-footer">
           <span>DigitalX 城市数智应用案例库</span>
-          <span>预计阅读 8 分钟</span>
+          <span>预计阅读 {readingMinutes} 分钟</span>
         </div>
       </section>
 
-      {chapters.map((chapter) => (
-        <section
-          className="reader-section"
-          id={chapter.id}
-          data-reader-anchor
-          key={chapter.id}
-        >
-          <p className="reader-eyebrow">{chapter.eyebrow}</p>
-          <h2>{chapter.title}</h2>
-          {chapter.paragraphs?.map((paragraph) => <p key={paragraph}>{paragraph}</p>)}
-          {chapter.points && (
-            <ol className="reader-numbered-list">
-              {chapter.points.map((point, index) => (
-                <li key={point}>
+      {chapters.map((chapter, chapterIndex) => {
+        const [lead, ...body] = chapter.paragraphs || [];
+        const isAbstract = chapter.id === "abstract";
+        return (
+          <section
+            className={`reader-section ${isAbstract ? "reader-section-abstract" : ""}`}
+            id={clone ? undefined : chapter.id}
+            data-reader-anchor={clone ? undefined : true}
+            key={chapter.id}
+          >
+            <header className="reader-chapter-header">
+              <div>
+                <p className="reader-eyebrow">{chapter.eyebrow}</p>
+                <h2>{chapter.title}</h2>
+              </div>
+              <span className="reader-chapter-number">{String(chapterIndex + 1).padStart(2, "0")}</span>
+            </header>
+            {lead && <p className="reader-section-lead">{lead}</p>}
+            {body.length > 0 && (
+              <div className="reader-section-body">
+                {body.map((paragraph) => <p key={paragraph}>{paragraph}</p>)}
+              </div>
+            )}
+            {chapter.points && chapter.points.length > 0 && (
+              <ol className={isAbstract ? "reader-key-findings" : "reader-numbered-list"}>
+                {chapter.points.map((point, index) => (
+                  <li key={point}>
+                    <span>{String(index + 1).padStart(2, "0")}</span>
+                    <p>{point}</p>
+                  </li>
+                ))}
+              </ol>
+            )}
+            {chapter.media?.map((asset) => (
+              <figure className="reader-figure" key={asset.id}>
+                <div className="reader-figure-label">{mediaKindLabels[asset.kind]}</div>
+                <Image
+                  src={asset.url}
+                  alt={asset.alt}
+                  width={1600}
+                  height={1000}
+                  unoptimized
+                />
+                <figcaption>
+                  <strong>图｜</strong>{asset.caption}
+                  <span>{asset.sourceKind === "pdf_page" ? `原始资料第${asset.pageNumber}页` : "原始网页图片"}</span>
+                </figcaption>
+              </figure>
+            ))}
+            {chapter.id === "sources" && item.sourceUrl && (
+              <a className="reader-source-link" href={item.sourceUrl} target="_blank" rel="noreferrer" tabIndex={clone ? -1 : undefined}>
+                查看原始资料 ↗
+              </a>
+            )}
+            {chapter.id === "sources" && (item.researchSources?.length || 0) > 0 && (
+              <ol className="reader-numbered-list">
+              {item.researchSources?.map((source, index) => (
+                <li key={source.url}>
                   <span>{String(index + 1).padStart(2, "0")}</span>
-                  <p>{point}</p>
+                  <p>
+                    <a className="reader-source-link" href={source.url} target="_blank" rel="noreferrer" tabIndex={clone ? -1 : undefined}>
+                      {source.title || source.url} ↗
+                    </a>
+                  </p>
                 </li>
               ))}
-            </ol>
-          )}
-          {chapter.id === "sources" && item.sourceUrl && (
-            <a className="reader-source-link" href={item.sourceUrl} target="_blank" rel="noreferrer">
-              查看原始资料 ↗
-            </a>
-          )}
-          {chapter.note && <aside className="reader-note">{chapter.note}</aside>}
-        </section>
-      ))}
+              </ol>
+            )}
+            {chapter.note && <aside className="reader-note"><strong>编辑说明</strong>{chapter.note}</aside>}
+          </section>
+        );
+      })}
     </>
   );
 }
@@ -260,7 +506,7 @@ export function CaseDetailClient({
   const [item, setItem] = useState<SmartCityCase | undefined>(initialItem);
   const [loaded, setLoaded] = useState(Boolean(initialItem));
   const [detailMode, setDetailMode] = useState<DetailMode>("read");
-  const [flow, setFlow] = useState<ReadingFlow>("scroll");
+  const [flow, setFlow] = useState<ReadingFlow>("paged");
   const [theme, setTheme] = useState<ReadingTheme>("paper");
   const [fontSize, setFontSize] = useState(18);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -272,11 +518,15 @@ export function CaseDetailClient({
   const [pagesPerSpread, setPagesPerSpread] = useState(2);
   const [pageCount, setPageCount] = useState(1);
   const [currentPage, setCurrentPage] = useState(1);
+  const [pageTurn, setPageTurn] = useState<PageTurnState | null>(null);
   const [mobileChromeVisible, setMobileChromeVisible] = useState(false);
   const [preferencesReady, setPreferencesReady] = useState(false);
   const pagedViewportRef = useRef<HTMLDivElement>(null);
   const pagedFlowRef = useRef<HTMLDivElement>(null);
   const restoredRef = useRef(false);
+  const turnTimersRef = useRef<number[]>([]);
+  const pointerStartRef = useRef<{ x: number; y: number; time: number } | null>(null);
+  const swipeHandledRef = useRef(false);
   const chapters = useMemo(() => makeChapters(item), [item]);
 
   useEffect(() => {
@@ -405,16 +655,39 @@ export function CaseDetailClient({
     if (current?.id) setActiveAnchor(current.id);
   }
 
-  const goToPage = useCallback((page: number) => {
+  const goToPage = useCallback((page: number, behavior: ScrollBehavior = "smooth") => {
     const viewport = pagedViewportRef.current;
     if (!viewport) return;
     const target = Math.min(pageCount, Math.max(1, page));
     const spreadStart = Math.floor((target - 1) / pagesPerSpread) * pagesPerSpread;
     viewport.scrollTo({
       left: spreadStart * (pageWidth + pageGap),
-      behavior: "smooth",
+      behavior,
     });
   }, [pageCount, pageGap, pageWidth, pagesPerSpread]);
+
+  const turnPage = useCallback((direction: "next" | "previous") => {
+    if (pageTurn) return;
+    const delta = direction === "next" ? pagesPerSpread : -pagesPerSpread;
+    const toPage = Math.min(pageCount, Math.max(1, currentPage + delta));
+    if (toPage === currentPage) return;
+
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      goToPage(toPage);
+      return;
+    }
+
+    setPageTurn({ direction, fromPage: currentPage, toPage });
+    turnTimersRef.current.forEach((timer) => window.clearTimeout(timer));
+    turnTimersRef.current = [
+      window.setTimeout(() => goToPage(toPage, "auto"), PAGE_TURN_DURATION * 0.48),
+      window.setTimeout(() => setPageTurn(null), PAGE_TURN_DURATION + 40),
+    ];
+  }, [currentPage, goToPage, pageCount, pageTurn, pagesPerSpread]);
+
+  useEffect(() => () => {
+    turnTimersRef.current.forEach((timer) => window.clearTimeout(timer));
+  }, []);
 
   function goToAnchor(id: string) {
     setActiveAnchor(id);
@@ -436,12 +709,18 @@ export function CaseDetailClient({
   }
 
   function switchFlow(next: ReadingFlow) {
+    setPageTurn(null);
+    turnTimersRef.current.forEach((timer) => window.clearTimeout(timer));
     setFlow(next);
     setSettingsOpen(false);
     restoredRef.current = false;
   }
 
   function handleReaderSurfaceClick(event: ReactMouseEvent<HTMLElement>) {
+    if (swipeHandledRef.current) {
+      swipeHandledRef.current = false;
+      return;
+    }
     if (window.innerWidth >= 768) return;
     const target = event.target as HTMLElement;
     if (target.closest("a, button, input, select, textarea")) return;
@@ -449,26 +728,47 @@ export function CaseDetailClient({
     if (flow === "paged") {
       const ratio = event.clientX / window.innerWidth;
       if (ratio < 0.22) {
-        goToPage(currentPage - 1);
+        turnPage("previous");
         return;
       }
       if (ratio > 0.78) {
-        goToPage(currentPage + 1);
+        turnPage("next");
         return;
       }
     }
     setMobileChromeVisible((value) => !value);
   }
 
+  function handlePointerDown(event: ReactPointerEvent<HTMLElement>) {
+    if (event.pointerType === "mouse") return;
+    pointerStartRef.current = { x: event.clientX, y: event.clientY, time: Date.now() };
+  }
+
+  function handlePointerUp(event: ReactPointerEvent<HTMLElement>) {
+    const start = pointerStartRef.current;
+    pointerStartRef.current = null;
+    if (!start || flow !== "paged") return;
+    const deltaX = event.clientX - start.x;
+    const deltaY = event.clientY - start.y;
+    if (
+      Date.now() - start.time <= 900 &&
+      Math.abs(deltaX) >= 46 &&
+      Math.abs(deltaX) > Math.abs(deltaY) * 1.25
+    ) {
+      swipeHandledRef.current = true;
+      turnPage(deltaX < 0 ? "next" : "previous");
+    }
+  }
+
   useEffect(() => {
     if (detailMode !== "read" || flow !== "paged") return;
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "ArrowLeft") goToPage(currentPage - 1);
-      if (event.key === "ArrowRight") goToPage(currentPage + 1);
+      if (event.key === "ArrowLeft") turnPage("previous");
+      if (event.key === "ArrowRight") turnPage("next");
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [currentPage, detailMode, flow, goToPage]);
+  }, [detailMode, flow, turnPage]);
 
   useEffect(() => {
     if (!mobileChromeVisible || settingsOpen || tocOpen || detailMode !== "read") return;
@@ -498,6 +798,16 @@ export function CaseDetailClient({
     "--reader-page-width": `${pageWidth}px`,
     "--reader-page-gap": `${pageGap}px`,
   } as CSSProperties;
+  const turnFrontPageIndex = pageTurn
+    ? pageTurn.direction === "next"
+      ? Math.min(pageCount - 1, pageTurn.fromPage - 1 + pagesPerSpread - 1)
+      : Math.max(0, pageTurn.fromPage - 1)
+    : 0;
+  const turnBackPageIndex = pageTurn
+    ? pageTurn.direction === "next"
+      ? Math.max(0, pageTurn.toPage - 1)
+      : Math.min(pageCount - 1, pageTurn.toPage - 1 + pagesPerSpread - 1)
+    : 0;
 
   return (
     <main
@@ -557,7 +867,7 @@ export function CaseDetailClient({
                 <span>阅读方式</span>
                 <div className="reader-setting-options">
                   <button className={flow === "scroll" ? "active" : ""} onClick={() => switchFlow("scroll")}>上下滚动</button>
-                  <button className={flow === "paged" ? "active" : ""} onClick={() => switchFlow("paged")}>左右翻页</button>
+                  <button className={flow === "paged" ? "active" : ""} onClick={() => switchFlow("paged")}>沉浸翻书</button>
                 </div>
               </div>
               <div>
@@ -610,18 +920,51 @@ export function CaseDetailClient({
             </article>
           ) : (
             <div className="reader-paged-shell">
-              <button className="reader-page-arrow previous" onClick={() => goToPage(currentPage - pagesPerSpread)} disabled={currentPage <= 1} aria-label="上一页">‹</button>
+              <button className="reader-page-arrow previous" onClick={() => turnPage("previous")} disabled={currentPage <= 1 || Boolean(pageTurn)} aria-label="上一页">‹</button>
               <div
                 className="reader-paged-viewport"
                 ref={pagedViewportRef}
                 onScroll={handlePagedScroll}
                 onClick={handleReaderSurfaceClick}
+                onPointerDown={handlePointerDown}
+                onPointerUp={handlePointerUp}
               >
                 <article className="reader-paged-flow" ref={pagedFlowRef}>
                   <ReaderContent item={item} chapters={chapters} />
                 </article>
               </div>
-              <button className="reader-page-arrow next" onClick={() => goToPage(currentPage + pagesPerSpread)} disabled={currentPage + pagesPerSpread > pageCount} aria-label="下一页">›</button>
+              {pageTurn && (
+                <div
+                  className={`reader-page-turn-stage direction-${pageTurn.direction} ${pagesPerSpread === 1 ? "single-page" : "double-page"}`}
+                  aria-hidden="true"
+                >
+                  <div className="reader-turning-sheet">
+                    <div className="reader-turn-face reader-turn-front">
+                      <div className="reader-turn-face-content">
+                        <article
+                          className="reader-paged-flow reader-paged-flow-clone"
+                          style={{ transform: `translate3d(-${turnFrontPageIndex * (pageWidth + pageGap)}px, 0, 0)` }}
+                        >
+                          <ReaderContent item={item} chapters={chapters} clone />
+                        </article>
+                      </div>
+                      <span className="reader-turn-edge" />
+                    </div>
+                    <div className="reader-turn-face reader-turn-back">
+                      <div className="reader-turn-face-content">
+                        <article
+                          className="reader-paged-flow reader-paged-flow-clone"
+                          style={{ transform: `translate3d(-${turnBackPageIndex * (pageWidth + pageGap)}px, 0, 0)` }}
+                        >
+                          <ReaderContent item={item} chapters={chapters} clone />
+                        </article>
+                      </div>
+                      <span className="reader-turn-edge" />
+                    </div>
+                  </div>
+                </div>
+              )}
+              <button className="reader-page-arrow next" onClick={() => turnPage("next")} disabled={currentPage + pagesPerSpread > pageCount || Boolean(pageTurn)} aria-label="下一页">›</button>
             </div>
           )}
 

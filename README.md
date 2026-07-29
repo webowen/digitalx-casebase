@@ -1,6 +1,6 @@
 # DigitalX 城市数智应用案例库
 
-DigitalX 是一套面向智慧城市从业者的案例采集、整理、检索、阅读与研判工具。当前仓库为 **V1.0 高保真可交互原型**：公开端、地图检索、案例阅读器、研读模式和管理工作台均可运行；正式数据库、账号权限、云端文件存储和真实 AI 解析尚未接入。
+DigitalX 是一套面向智慧城市从业者的案例采集、整理、检索、阅读与研判工具。当前仓库为 **V1.3 工程化产品原型**：文本型 PDF 先在浏览器本地提取，基础结构化优先调用 DeepSeek，显式开启联网研究时由 Tavily Basic Search 搜索公开网页，再由 DeepSeek 生成可复核的结构化案例文章；扫描 PDF 可使用 Gemini 作为视觉识别后备。案例图片证据可保存至 Sites 对象存储并进入人工复核，阅读器支持桌面双页、移动单页和 3D 翻书。正式案例数据库和账号权限仍未接入。
 
 当前线上演示：<https://digitalx-casebase.bowenw563.chatgpt.site>
 
@@ -22,9 +22,11 @@ DigitalX 是一套面向智慧城市从业者的案例采集、整理、检索�
 |---|---|
 | `/` | 公开案例首页、搜索筛选、地图与案例列表 |
 | `/cases/[slug]` | 案例阅读器及研读档案 |
-| `/admin` | 案例导入、模拟解析、人工复核与发布工作台 |
+| `/admin` | 案例导入、真实 AI 解析、联网研究、位置补全、人工复核与发布工作台 |
+| `/api/ai/parse-case` | 服务端按低成本策略调用 DeepSeek、Tavily 搜索或视觉后备模型，返回结构化案例草稿 |
 | `/api/amap/config` | 向前端返回高德地图 JS Key 与代理地址 |
 | `/api/amap/[...path]` | 高德安全密钥服务代理 |
+| `/api/media/*` | 提取、导入、保存和读取待复核的案例图片证据 |
 
 ## 技术栈
 
@@ -52,7 +54,7 @@ Windows 用户建议安装 Git for Windows，并在 VS Code 中使用 PowerShell
 npm ci
 ```
 
-复制环境变量示例并填写自己的高德地图配置：
+复制环境变量示例并填写自己的高德地图与 AI 服务配置：
 
 ```bash
 cp .env.example .env.local
@@ -90,6 +92,20 @@ npm test
 ```env
 AMAP_JS_KEY=
 AMAP_SECURITY_CODE=
+AI_CASE_PARSER_PROVIDER=deepseek
+DEEPSEEK_API_KEY=
+DEEPSEEK_CASE_PARSER_MODEL=deepseek-v4-flash
+AI_CASE_RESEARCH_PROVIDER=tavily
+TAVILY_API_KEY=
+ZHIPU_API_KEY=
+WSA_API_KEY=
+DASHSCOPE_API_KEY=
+QWEN_CASE_PARSER_MODEL=qwen-plus
+QWEN_SEARCH_STRATEGY=turbo
+GEMINI_API_KEY=
+GEMINI_CASE_PARSER_MODEL=gemini-3.5-flash
+OPENAI_API_KEY=
+OPENAI_CASE_PARSER_MODEL=gpt-5.6-sol
 ```
 
 真实值只写在 `.env.local` 或部署平台的环境变量设置中。
@@ -120,7 +136,7 @@ V1 的案例数据来自两部分：
 1. `lib/mock-cases.ts` 中的内置演示案例；
 2. 浏览器 `localStorage` 中由管理端保存的本地案例。
 
-因此，换浏览器、换电脑或清理浏览器数据后，本地新增内容不会自动同步。管理端的“文件上传、AI 解析、结构化提取”是交互演示，不代表已经接入正式 OCR 或大模型服务。
+因此，换浏览器、换电脑或清理浏览器数据后，本地案例记录不会自动同步。管理端已接入低成本多模型路由：基础解析与研究报告整理优先使用 DeepSeek，联网资料由 Tavily Basic Search 搜索，每个案例最多调用两次、每次最多返回10条，合并去重后最多保留20个来源；研究报告少于3000字时会额外触发一次只针对报告的低成本扩写。DeepSeek临时高负载或连接失败时会自动重试最多2次，仍失败才返回明确的中文提示。文本型 PDF 在浏览器本地提取，扫描 PDF 使用 Gemini 后备识别后也可继续联网研究。联网失败会自动降级为基础解析，并显示实际模型、Token、搜索次数和估算费用。资料只明确省份时，系统会以省会作为地图展示锚点并要求人工确认。入选图片证据保存至 Sites 对象存储，但案例记录、原始 PDF、审核日志和跨设备数据仍未进入正式数据库。
 
 下一阶段建议先打通：
 

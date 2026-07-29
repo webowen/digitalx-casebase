@@ -1,11 +1,17 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import {
   categories,
   categoryColors,
   type CaseCategory,
+  type CaseArticleSection,
+  type CaseMediaAsset,
+  type CaseMediaCandidate,
+  type CaseMediaKind,
+  type CaseMediaPlanItem,
   type EvidenceLevel,
   type LocationLevel,
   type PublishStatus,
@@ -13,9 +19,30 @@ import {
 } from "@/lib/case-model";
 import { smartCityCases } from "@/lib/mock-cases";
 import { createSlug, getLocalCases, removeLocalCase, saveLocalCase } from "@/lib/local-cases";
+import { extractPdfContent } from "@/lib/client-pdf-text";
+import {
+  MAX_CASE_PDF_BYTES,
+  MAX_CASE_SOURCE_CHARACTERS,
+  assessmentLabels,
+  type CaseFieldAssessment,
+  type CaseParserResponse,
+} from "@/lib/ai-case-parser";
+import {
+  articleCharacterCount,
+  articleQualityIssues,
+  articleSectionOrder,
+  articleSectionTitles,
+} from "@/lib/case-editorial";
 
 type ImportMode = "网页链接" | "粘贴原文" | "本地文件";
 type WorkflowStep = "导入资料" | "AI解析" | "人工复核" | "位置确认" | "发布入库";
+
+const providerLabels: Record<CaseParserResponse["meta"]["provider"], string> = {
+  deepseek: "DeepSeek",
+  qwen: "千问",
+  gemini: "Gemini",
+  openai: "OpenAI",
+};
 
 const workflowSteps: WorkflowStep[] = ["导入资料", "AI解析", "人工复核", "位置确认", "发布入库"];
 const sourceTypes: SmartCityCase["sourceType"][] = ["政策文件", "新闻报道", "招投标公告", "企业案例", "会议材料", "研究报告"];
@@ -23,6 +50,15 @@ const locationLevels: LocationLevel[] = ["省级", "市级", "区县级", "园�
 const evidenceLevels: EvidenceLevel[] = ["强", "中", "弱"];
 const coverageTypes: SmartCityCase["coverageType"][] = ["单点项目", "城市级平台", "区县级场景", "省域统筹", "园区示范"];
 const projectStages: NonNullable<SmartCityCase["projectStage"]>[] = ["前期谋划", "采购招标", "建设实施", "验收运营", "持续运维"];
+const mediaKindLabels: Record<CaseMediaKind, string> = {
+  platform_ui: "平台界面",
+  dashboard: "驾驶舱 / 大屏",
+  architecture: "架构 / 流程图",
+  map: "地图 / 空间成果",
+  site_photo: "现场 / 实景照片",
+  document: "原始资料页",
+  other: "其他图片",
+};
 
 const demoSource = `项目名称：深圳市低空飞行综合监管与公共服务平台项目（演示）
 建设背景：随着物流配送、城市巡检、应急救援等低空应用快速增加，现有飞行活动分散申报、跨部门协同不足，亟需形成统一运行服务与安全监管能力。
@@ -46,6 +82,8 @@ const emptyCase: SmartCityCase = {
   lng: 114.0579,
   lat: 22.5431,
   locationConfidence: 0.62,
+  locationMethod: "city_center_inferred",
+  locationReason: "新建案例默认使用深圳市中心作为地图展示锚点。",
   coverageType: "城市级平台",
   status: "草稿",
   sourceType: "招投标公告",
@@ -65,6 +103,28 @@ const emptyCase: SmartCityCase = {
   fundingSource: "",
   implementationUnit: "",
   operationUnit: "",
+  researchReport: "",
+  researchSources: [],
+  researchQueries: [],
+  identity: {
+    canonicalTitle: "",
+    candidates: [],
+    aliases: [],
+    confidence: 0,
+    needsReview: true,
+    reason: "等待AI核验正式项目名称。",
+    evidence: [],
+  },
+  article: {
+    standfirst: "",
+    keyFindings: [],
+    sections: [],
+  },
+  media: [],
+};
+
+type PendingMediaCandidate = CaseMediaCandidate & {
+  blob?: Blob;
 };
 
 function lines(value: string) {
@@ -78,45 +138,94 @@ function toText(value: string[]) {
   return value.join("\n");
 }
 
-function buildParsedCase(sourceUrl: string, sourceText: string): SmartCityCase {
-  const now = new Date().toISOString();
-  return {
-    ...emptyCase,
-    id: `local-${Date.now()}`,
-    slug: createSlug("深圳市低空飞行综合监管与公共服务平台项目"),
-    title: "深圳市低空飞行综合监管与公共服务平台项目（演示）",
-    owner: "市级低空经济主管部门 / 城市运行管理相关单位",
-    summary:
-      "针对低空飞行活动分散申报、运行数据割裂及安全监管协同不足等问题，建设覆盖空域数字底座、飞行服务、运行监测、风险预警和应急联动的城市级低空综合监管与公共服务能力。",
-    painPoints: [
-      "低空飞行计划分散申报，企业和管理部门协同成本较高",
-      "物流、巡检、应急等场景数据尚未形成统一运行视图",
-      "产业发展速度快于安全监管规则和跨部门处置机制建设",
-    ],
-    solution: [
-      "建设低空空域、航线、起降点和重点风险区数字底座",
-      "形成飞行计划申报、任务审核、实时态势监测和风险预警闭环",
-      "对接城市运行、公安、应急等系统，支撑异常事件协同处置",
-    ],
-    outcomes: [
-      "提升低空飞行活动的可视化、可追溯和协同监管能力",
-      "为物流配送、城市巡检、文旅和应急救援提供共性服务底座",
-      "沉淀城市级低空运行规则、接口和项目实施方法",
-    ],
-    aiTags: ["空域管理", "飞行服务", "风险预警", "城市运行", "低空经济"],
-    expertView:
-      "项目价值不应只看无人机数量和可视化效果，而要重点核验飞行申报是否提效、跨部门处置是否形成制度闭环、平台是否具备持续运营主体。",
-    sourceNote: "演示资料已完成结构化提取；正式发布前仍需绑定原始公告、采购文件及可核验指标。",
-    sourceUrl,
-    sourceTitle: "低空飞行综合监管与公共服务平台项目资料（演示）",
-    sourceExcerpt: sourceText.slice(0, 420),
-    investmentAmount: "约3,200万元",
-    fundingSource: "财政资金与产业专项资金",
-    implementationUnit: "待采购结果确认",
-    operationUnit: "市级低空运行服务主体",
-    importedAt: now,
-    updatedAt: now,
-  };
+function paragraphs(value: string) {
+  return value
+    .split(/\n\s*\n/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function toParagraphText(value: string[]) {
+  return value.join("\n\n");
+}
+
+function fallbackMediaPlan(candidates: PendingMediaCandidate[]): CaseMediaPlanItem[] {
+  return [...candidates]
+    .sort((left, right) => right.visualScore - left.visualScore)
+    .slice(0, 3)
+    .map((candidate) => ({
+      candidateId: candidate.id,
+      kind: "document",
+      sectionId: "overview",
+      caption:
+        candidate.sourceKind === "pdf_page"
+          ? `原始资料第${candidate.pageNumber}页图像，建议人工判断其展示内容和章节位置。`
+          : `原始网页中的案例配图，建议人工确认其展示对象。`,
+      alt:
+        candidate.sourceKind === "pdf_page"
+          ? `原始资料第${candidate.pageNumber}页`
+          : candidate.nearbyText || "原始网页案例图片",
+      confidence: 0.4,
+      needsReview: true,
+      reason: "AI未形成可靠图片编排，系统按视觉密度保留为人工候选。",
+    }));
+}
+
+async function materializeMediaAssets(
+  caseId: string,
+  plans: CaseMediaPlanItem[],
+  candidates: PendingMediaCandidate[],
+) {
+  const byId = new Map(candidates.map((candidate) => [candidate.id, candidate]));
+  const activePlans = plans.length > 0 ? plans : fallbackMediaPlan(candidates);
+  const assets: CaseMediaAsset[] = [];
+
+  for (const plan of activePlans.slice(0, 6)) {
+    const candidate = byId.get(plan.candidateId);
+    if (!candidate) continue;
+    try {
+      let response: Response;
+      if (candidate.sourceKind === "pdf_page" && candidate.blob) {
+        const upload = new FormData();
+        upload.set(
+          "file",
+          new File([candidate.blob], `${candidate.id}.jpg`, {
+            type: candidate.blob.type || "image/jpeg",
+          }),
+        );
+        upload.set("caseId", caseId);
+        upload.set("candidateId", candidate.id);
+        response = await fetch("/api/media/upload", { method: "POST", body: upload });
+      } else {
+        response = await fetch("/api/media/import-web", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            url: candidate.sourceUrl,
+            caseId,
+            candidateId: candidate.id,
+          }),
+        });
+      }
+      const payload = (await response.json()) as { url?: string };
+      if (!response.ok || !payload.url) continue;
+      assets.push({
+        ...plan,
+        id: `${caseId}-${candidate.id}`,
+        url: payload.url,
+        sourceKind: candidate.sourceKind,
+        sourceUrl: candidate.sourceUrl,
+        pageNumber: candidate.pageNumber,
+        included: true,
+        reviewed: false,
+        needsReview: true,
+      });
+    } catch {
+      // 单张图片失败不应阻断案例正文生成。
+    }
+  }
+
+  return assets;
 }
 
 function StatusBadge({ status }: { status: PublishStatus }) {
@@ -133,7 +242,12 @@ export default function AdminPage() {
   const [sourceUrl, setSourceUrl] = useState("");
   const [sourceText, setSourceText] = useState("");
   const [fileName, setFileName] = useState("");
+  const [sourceFile, setSourceFile] = useState<File | null>(null);
   const [caseItem, setCaseItem] = useState<SmartCityCase>(emptyCase);
+  const [assessments, setAssessments] = useState<CaseFieldAssessment[]>([]);
+  const [reviewItems, setReviewItems] = useState<string[]>([]);
+  const [parseMeta, setParseMeta] = useState<CaseParserResponse["meta"] | null>(null);
+  const [researchMode, setResearchMode] = useState(true);
   const [localCases, setLocalCases] = useState<SmartCityCase[]>([]);
   const [stepIndex, setStepIndex] = useState(0);
   const [parsing, setParsing] = useState(false);
@@ -161,29 +275,221 @@ export default function AdminPage() {
     setSourceText(demoSource);
     setSourceUrl("https://example.com/demo-low-altitude-project");
     setFileName("");
+    setSourceFile(null);
     setStepIndex(0);
-    setNotice("已载入一份演示资料，可直接开始解析。");
+    setNotice("已载入一份测试资料。点击解析后会真实调用当前配置的AI服务；是否收费取决于所选服务商及账户套餐。");
   }
 
-  function simulateParse() {
-    if (!sourceText.trim() && !sourceUrl.trim() && !fileName) {
-      setErrors(["请先粘贴网页链接、原始资料或选择文件。"]);
+  async function parseCase() {
+    let activeText = importMode === "本地文件" ? "" : sourceText.trim();
+    let activeFile = importMode === "本地文件" ? sourceFile : null;
+    const importedFile = activeFile;
+    let mediaCandidates: PendingMediaCandidate[] = [];
+
+    if (!activeText && !activeFile) {
+      setErrors(["请先粘贴原始资料正文，或选择一个 PDF 文件。网页链接暂时只作为来源记录。"]);
       return;
     }
+    if (activeText.length > MAX_CASE_SOURCE_CHARACTERS) {
+      setErrors([`原始正文不能超过 ${MAX_CASE_SOURCE_CHARACTERS.toLocaleString()} 个字符。`]);
+      return;
+    }
+    if (activeFile && activeFile.size > MAX_CASE_PDF_BYTES) {
+      setErrors(["PDF 文件不能超过 8MB。"]);
+      return;
+    }
+
     setErrors([]);
     setNotice("");
     setParsing(true);
     setStepIndex(1);
-    window.setTimeout(() => {
-      setCaseItem(buildParsedCase(sourceUrl, sourceText || demoSource));
+
+    if (activeFile) {
+      setNotice("正在本地提取PDF文字并识别含图页面；原图只在入选后保存。");
+      try {
+        const extracted = await extractPdfContent(activeFile);
+        mediaCandidates = extracted.mediaCandidates;
+        if (!extracted.needsOcr) {
+          activeText = extracted.text.slice(0, MAX_CASE_SOURCE_CHARACTERS);
+          activeFile = null;
+          setNotice(
+            `已提取 ${extracted.pageCount} 页、${extracted.characterCount.toLocaleString()} 个字符和 ${mediaCandidates.length} 个图片候选，正在由AI编排。`,
+          );
+        } else {
+          setNotice("该文件疑似扫描PDF，本地未提取到足够文字，将尝试使用已配置的视觉模型识别。");
+        }
+      } catch {
+        setNotice("本地PDF文字提取失败，将尝试使用已配置的视觉模型识别。");
+      }
+    } else if (importMode === "网页链接" && sourceUrl.trim()) {
+      setNotice("正在读取网页中的原始配图，并与粘贴正文一起交给AI编排。");
+      try {
+        const response = await fetch("/api/media/web-candidates", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ url: sourceUrl.trim() }),
+        });
+        const payload = (await response.json()) as {
+          candidates?: CaseMediaCandidate[];
+        };
+        if (response.ok && Array.isArray(payload.candidates)) {
+          mediaCandidates = payload.candidates;
+        }
+      } catch {
+        // 网页拒绝抓取时仍继续解析用户粘贴的正文。
+      }
+    }
+
+    const formData = new FormData();
+    formData.set("sourceText", activeText);
+    formData.set("sourceUrl", sourceUrl);
+    formData.set("researchMode", String(researchMode));
+    formData.set(
+      "mediaCandidates",
+      JSON.stringify(
+        mediaCandidates.map(({ id, sourceKind, pageNumber, sourceUrl: candidateUrl, nearbyText, visualScore }) => ({
+          id,
+          sourceKind,
+          pageNumber,
+          sourceUrl: candidateUrl,
+          nearbyText,
+          visualScore,
+        })),
+      ),
+    );
+    if (activeFile) formData.set("file", activeFile);
+
+    try {
+      const response = await fetch("/api/ai/parse-case", {
+        method: "POST",
+        body: formData,
+      });
+      const payload = (await response.json()) as CaseParserResponse | { error?: { message?: string } };
+      if (!response.ok || !("result" in payload)) {
+        const message = "error" in payload ? payload.error?.message : "";
+        throw new Error(message || "AI 解析失败，请稍后重试。");
+      }
+      if (!payload.result.compatible) {
+        setStepIndex(0);
+        setErrors([payload.result.incompatibilityReason || "这份资料不像可入库的城市数字化案例，请更换资料。"]);
+        return;
+      }
+
+      const now = new Date().toISOString();
+      const parsed = payload.result.case;
+      const caseId = `local-${Date.now()}`;
+      const media = await materializeMediaAssets(
+        caseId,
+        payload.result.mediaPlan,
+        mediaCandidates,
+      );
+      const locationAssessment = payload.result.fieldAssessments.find((item) => item.field === "location");
+      const nextCase: SmartCityCase = {
+        ...emptyCase,
+        ...parsed,
+        id: caseId,
+        slug: createSlug(parsed.title || "case"),
+        year: parsed.year || new Date().getFullYear(),
+        status: "草稿",
+        lng: parsed.lng,
+        lat: parsed.lat,
+        locationConfidence: parsed.locationConfidence || locationAssessment?.confidence || 0,
+        locationMethod: parsed.locationMethod,
+        locationReason: parsed.locationReason,
+        researchSources: payload.result.researchSources,
+        researchQueries: payload.result.researchQueries,
+        identity: payload.result.identity,
+        article: payload.result.article,
+        media,
+        sourceUrl,
+        sourceNote: `由 AI 从${importedFile ? `文件“${importedFile.name}”` : "粘贴正文"}生成草稿；所有字段需人工复核后发布。`,
+        sourceExcerpt: parsed.sourceExcerpt || activeText.slice(0, 420),
+        importedAt: now,
+        updatedAt: now,
+      };
+
+      setCaseItem(nextCase);
+      setAssessments(payload.result.fieldAssessments);
+      setReviewItems(payload.result.reviewItems);
+      setParseMeta(payload.meta);
       setParsing(false);
       setStepIndex(2);
-      setNotice("模拟AI解析完成：已识别28个字段，并标记3项需要人工核验。");
-    }, 900);
+      setNotice(
+        payload.meta.fallbackUsed
+          ? payload.meta.fallbackReason
+          : payload.meta.researchMode
+          ? `联网研究完成：已核验正式项目名称，生成结构化文章、${media.length} 张待复核图片和 ${payload.result.researchSources.length} 个可追溯来源。`
+          : `真实 AI 解析完成：生成了可编辑草稿，并标记 ${payload.result.reviewItems.length} 项人工核验事项。`,
+      );
+    } catch (error) {
+      setStepIndex(0);
+      setErrors([error instanceof Error ? error.message : "AI 解析失败，请稍后重试。"]);
+    } finally {
+      setParsing(false);
+    }
   }
 
   function update<K extends keyof SmartCityCase>(key: K, value: SmartCityCase[K]) {
     setCaseItem((current) => ({ ...current, [key]: value, updatedAt: new Date().toISOString() }));
+  }
+
+  function updateCanonicalTitle(value: string) {
+    setCaseItem((current) => ({
+      ...current,
+      title: value,
+      identity: current.identity
+        ? {
+            ...current.identity,
+            canonicalTitle: value,
+            needsReview: true,
+            reason: "正式名称已人工修改，请再次确认后发布。",
+          }
+        : undefined,
+      updatedAt: new Date().toISOString(),
+    }));
+  }
+
+  function confirmCanonicalTitle(confirmed: boolean) {
+    setCaseItem((current) => {
+      if (!current.identity) return current;
+      return {
+        ...current,
+        identity: {
+          ...current.identity,
+          canonicalTitle: current.title.trim(),
+          confidence: confirmed ? Math.max(current.identity.confidence, 0.85) : current.identity.confidence,
+          needsReview: !confirmed,
+          reason: confirmed
+            ? `已由人工依据原始资料及联网证据确认：${current.title.trim()}`
+            : "正式项目名称仍需人工确认。",
+        },
+        updatedAt: new Date().toISOString(),
+      };
+    });
+  }
+
+  function updateArticleSection(index: number, patch: Partial<CaseArticleSection>) {
+    setCaseItem((current) => {
+      if (!current.article) return current;
+      const sections = current.article.sections.map((section, sectionIndex) =>
+        sectionIndex === index ? { ...section, ...patch } : section,
+      );
+      return {
+        ...current,
+        article: { ...current.article, sections },
+        updatedAt: new Date().toISOString(),
+      };
+    });
+  }
+
+  function updateMediaAsset(index: number, patch: Partial<CaseMediaAsset>) {
+    setCaseItem((current) => ({
+      ...current,
+      media: (current.media || []).map((asset, assetIndex) =>
+        assetIndex === index ? { ...asset, ...patch } : asset,
+      ),
+      updatedAt: new Date().toISOString(),
+    }));
   }
 
   function validateForPublish() {
@@ -192,7 +498,26 @@ export default function AdminPage() {
     if (!caseItem.city.trim()) next.push("城市不能为空。");
     if (!caseItem.summary.trim()) next.push("案例摘要不能为空。");
     if (!caseItem.sourceNote.trim()) next.push("请填写来源说明。");
-    if (!Number.isFinite(caseItem.lng) || !Number.isFinite(caseItem.lat)) next.push("请确认地图经纬度。");
+    if (caseItem.identity || caseItem.article) {
+      next.push(...articleQualityIssues(caseItem));
+    }
+    for (const [index, asset] of (caseItem.media || []).entries()) {
+      if (!asset.included) continue;
+      if (!asset.reviewed) next.push(`第${index + 1}张入选图片尚未完成人工确认。`);
+      if (!asset.caption.trim()) next.push(`第${index + 1}张入选图片缺少图注。`);
+      if (!asset.alt.trim()) next.push(`第${index + 1}张入选图片缺少无障碍说明。`);
+    }
+    if (
+      !Number.isFinite(caseItem.lng) ||
+      !Number.isFinite(caseItem.lat) ||
+      caseItem.lng < -180 ||
+      caseItem.lng > 180 ||
+      caseItem.lat < -90 ||
+      caseItem.lat > 90 ||
+      (caseItem.lng === 0 && caseItem.lat === 0)
+    ) {
+      next.push("请人工确认有效的地图经纬度；AI 不会猜测精确坐标。");
+    }
     setErrors(next);
     return next.length === 0;
   }
@@ -200,7 +525,7 @@ export default function AdminPage() {
   function persist(status: PublishStatus) {
     if (status === "已发布" && !validateForPublish()) return;
     if (!caseItem.title.trim()) {
-      setErrors(["请先完成模拟解析或填写案例名称。"]);
+      setErrors(["请先完成 AI 解析或填写案例名称。"]);
       return;
     }
 
@@ -234,22 +559,40 @@ export default function AdminPage() {
     setCaseItem(item);
     setSourceUrl(item.sourceUrl || "");
     setSourceText(item.sourceExcerpt || "");
+    setSourceFile(null);
+    setFileName("");
+    setAssessments([]);
+    setReviewItems([]);
+    setParseMeta(null);
+    setResearchMode(true);
     setStepIndex(item.status === "已发布" ? 4 : item.status === "待复核" ? 3 : 2);
     setNotice(`正在编辑：${item.title}`);
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
   function newCase() {
+    setImportMode("网页链接");
     setCaseItem(emptyCase);
     setSourceUrl("");
     setSourceText("");
     setFileName("");
+    setSourceFile(null);
+    setAssessments([]);
+    setReviewItems([]);
+    setParseMeta(null);
+    setResearchMode(true);
     setStepIndex(0);
     setErrors([]);
     setNotice("");
   }
 
-  function deleteCase(id: string) {
+  async function deleteCase(id: string) {
+    const target = localCases.find((item) => item.id === id);
+    await Promise.allSettled(
+      (target?.media || []).map((asset) =>
+        fetch(asset.url, { method: "DELETE" }),
+      ),
+    );
     const next = removeLocalCase(id);
     setLocalCases(next);
     if (caseItem.id === id) newCase();
@@ -269,8 +612,8 @@ export default function AdminPage() {
               </span>
             </Link>
             <span className="hidden h-6 w-px bg-slate-200 md:block" />
-            <span className="hidden rounded border border-amber-200 bg-amber-50 px-2 py-1 text-xs text-amber-700 md:inline-flex">
-              原型模式 · 模拟AI解析
+            <span className="hidden rounded border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs text-emerald-700 md:inline-flex">
+              DeepSeek基础解析 · Tavily联网研究 · 人工复核后发布
             </span>
           </div>
           <div className="flex items-center gap-2">
@@ -353,16 +696,27 @@ export default function AdminPage() {
               </div>
 
               {importMode === "网页链接" && (
-                <label className="mt-4 block">
-                  <span className="text-xs font-medium text-slate-600">资料网址</span>
-                  <input
-                    value={sourceUrl}
-                    onChange={(event) => setSourceUrl(event.target.value)}
-                    placeholder="https://..."
-                    className="mt-1.5 h-10 w-full rounded border border-slate-200 px-3 text-sm outline-none focus:border-teal-600 focus:ring-2 focus:ring-teal-100"
-                  />
-                  <p className="mt-2 text-xs leading-5 text-slate-500">原型阶段不抓取网页，填写后使用演示内容模拟解析。</p>
-                </label>
+                <div className="mt-4 space-y-3">
+                  <label className="block">
+                    <span className="text-xs font-medium text-slate-600">资料网址</span>
+                    <input
+                      value={sourceUrl}
+                      onChange={(event) => setSourceUrl(event.target.value)}
+                      placeholder="https://..."
+                      className="mt-1.5 h-10 w-full rounded border border-slate-200 px-3 text-sm outline-none focus:border-teal-600 focus:ring-2 focus:ring-teal-100"
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="text-xs font-medium text-slate-600">网页正文 *</span>
+                    <textarea
+                      value={sourceText}
+                      onChange={(event) => setSourceText(event.target.value)}
+                      placeholder="复制并粘贴网页中的项目正文……"
+                      className="mt-1.5 h-48 w-full resize-none rounded border border-slate-200 p-3 text-sm leading-6 outline-none focus:border-teal-600 focus:ring-2 focus:ring-teal-100"
+                    />
+                  </label>
+                  <p className="text-xs leading-5 text-slate-500">正文仍以你粘贴的内容为准；系统会尝试读取网页原图，受反爬限制的网站可能需要改用PDF。</p>
+                </div>
               )}
 
               {importMode === "粘贴原文" && (
@@ -380,13 +734,17 @@ export default function AdminPage() {
               {importMode === "本地文件" && (
                 <label className="mt-4 flex min-h-44 cursor-pointer flex-col items-center justify-center rounded border border-dashed border-slate-300 bg-slate-50 p-5 text-center hover:border-teal-500">
                   <span className="text-2xl">⇧</span>
-                  <span className="mt-2 text-sm font-medium">{fileName || "选择 PDF、Word、图片或文本"}</span>
-                  <span className="mt-1 text-xs text-slate-500">本轮仅验证上传交互，不解析文件内容</span>
+                  <span className="mt-2 text-sm font-medium">{fileName || "选择 PDF 文件"}</span>
+                  <span className="mt-1 text-xs text-slate-500">同时提取文字和高信息密度页面；扫描件仍需要视觉模型，最大8MB</span>
                   <input
                     type="file"
                     className="sr-only"
-                    accept=".pdf,.doc,.docx,.txt,.md,.png,.jpg,.jpeg"
-                    onChange={(event) => setFileName(event.target.files?.[0]?.name || "")}
+                    accept="application/pdf,.pdf"
+                    onChange={(event) => {
+                      const nextFile = event.target.files?.[0] || null;
+                      setSourceFile(nextFile);
+                      setFileName(nextFile?.name || "");
+                    }}
                   />
                 </label>
               )}
@@ -395,16 +753,31 @@ export default function AdminPage() {
                 载入演示资料
               </button>
               <button
-                onClick={simulateParse}
+                onClick={parseCase}
                 disabled={parsing}
                 className="mt-2 flex w-full items-center justify-center gap-2 rounded bg-slate-950 px-3 py-2.5 text-sm font-medium text-white disabled:cursor-wait disabled:opacity-60"
               >
                 {parsing && <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white border-t-transparent" />}
-                {parsing ? "正在模拟解析…" : "开始AI结构化解析"}
+                {parsing ? "AI 正在阅读与提取…" : "开始真实AI结构化解析"}
               </button>
 
+              <label className="mt-3 flex items-start gap-2 rounded border border-teal-100 bg-teal-50/70 p-3">
+                <input
+                  type="checkbox"
+                  checked={researchMode}
+                  onChange={(event) => setResearchMode(event.target.checked)}
+                  className="mt-0.5 accent-teal-700"
+                />
+                <span className="text-xs leading-5 text-teal-900">
+                  <b>联网核验并生成案例文章</b>
+                  <span className="block text-teal-700">
+                    先用Tavily核验正式项目名称并补充权威资料，再由DeepSeek按统一业务框架生成文章；失败时自动降级为基础解析。
+                  </span>
+                </span>
+              </label>
+
               <div className="mt-4 rounded bg-slate-50 p-3 text-xs leading-5 text-slate-500">
-                <b className="text-slate-700">本地原型说明：</b>本轮不会调用大模型，也不会产生AI费用。
+                <b className="text-slate-700">低成本模式：</b>项目识别与文章整理使用DeepSeek，联网资料由Tavily Basic Search检索，每个案例最多2次；免费额度内不产生搜索费。文本PDF先在浏览器本地提取，结果只生成待复核草稿。
               </div>
             </div>
           </aside>
@@ -428,8 +801,8 @@ export default function AdminPage() {
 
               <div className="grid gap-4 md:grid-cols-2">
                 <label className="md:col-span-2">
-                  <span className="text-xs font-medium text-slate-600">案例名称 *</span>
-                  <input value={caseItem.title} onChange={(event) => update("title", event.target.value)} className="admin-input" />
+                  <span className="text-xs font-medium text-slate-600">正式项目 / 平台名称 *</span>
+                  <input value={caseItem.title} onChange={(event) => updateCanonicalTitle(event.target.value)} className="admin-input" />
                 </label>
                 <label>
                   <span className="text-xs font-medium text-slate-600">应用分类</span>
@@ -473,6 +846,72 @@ export default function AdminPage() {
                 </label>
               </div>
 
+              {caseItem.identity && caseItem.title && (
+                <section className={`rounded border p-4 ${caseItem.identity.needsReview ? "border-amber-200 bg-amber-50/60" : "border-emerald-200 bg-emerald-50/60"}`}>
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <div className="text-xs font-semibold text-slate-800">项目身份核验</div>
+                      <div className="mt-1 text-xs text-slate-500">
+                        原始资料标题：{caseItem.sourceTitle || "未识别"}
+                      </div>
+                    </div>
+                    <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${caseItem.identity.needsReview ? "bg-amber-100 text-amber-800" : "bg-emerald-100 text-emerald-800"}`}>
+                      名称置信度 {Math.round(caseItem.identity.confidence * 100)}%
+                    </span>
+                  </div>
+                  <p className="mt-3 text-xs leading-5 text-slate-600">{caseItem.identity.reason}</p>
+                  {(caseItem.identity.candidates.length > 0 || caseItem.identity.aliases.length > 0) && (
+                    <div className="mt-3 grid gap-3 md:grid-cols-2">
+                      <div>
+                        <div className="text-[11px] font-semibold text-slate-500">候选正式名称</div>
+                        <div className="mt-1 flex flex-wrap gap-1.5">
+                          {caseItem.identity.candidates.map((candidate) => (
+                            <button
+                              type="button"
+                              key={candidate}
+                              onClick={() => updateCanonicalTitle(candidate)}
+                              className="rounded border border-slate-200 bg-white px-2 py-1 text-left text-xs text-slate-700 hover:border-teal-400"
+                            >
+                              {candidate}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-[11px] font-semibold text-slate-500">简称 / 别名</div>
+                        <div className="mt-1 text-xs leading-5 text-slate-600">
+                          {caseItem.identity.aliases.join("、") || "暂无"}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                  {caseItem.identity.evidence.length > 0 && (
+                    <div className="mt-3 space-y-1.5">
+                      {caseItem.identity.evidence.map((evidence) => (
+                        <a
+                          key={`${evidence.url}-${evidence.title}`}
+                          href={evidence.url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="block text-xs leading-5 text-teal-700 hover:underline"
+                        >
+                          {evidence.title || "名称核验证据"}：{evidence.quote || evidence.url}
+                        </a>
+                      ))}
+                    </div>
+                  )}
+                  <label className="mt-3 flex items-start gap-2 rounded bg-white/80 p-2.5 text-xs leading-5 text-slate-700">
+                    <input
+                      type="checkbox"
+                      checked={!caseItem.identity.needsReview}
+                      onChange={(event) => confirmCanonicalTitle(event.target.checked)}
+                      className="mt-0.5 accent-teal-700"
+                    />
+                    我已对照原始资料和联网证据，确认上方名称是项目、平台或系统的正式名称，不是文件名或文章标题。
+                  </label>
+                </section>
+              )}
+
               <label className="block">
                 <span className="text-xs font-medium text-slate-600">案例摘要 *</span>
                 <textarea value={caseItem.summary} onChange={(event) => update("summary", event.target.value)} className="admin-textarea h-28" />
@@ -505,6 +944,204 @@ export default function AdminPage() {
                   className="admin-textarea h-20"
                 />
               </label>
+
+              {caseItem.article && (
+                <section className="rounded border border-slate-200 bg-slate-50/70 p-4">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <div className="text-sm font-semibold text-slate-800">公开案例文章</div>
+                      <div className="mt-1 text-xs text-slate-500">固定业务框架、去重分层，发布后按此结构进入阅读器。</div>
+                    </div>
+                    <span className="text-xs text-slate-400">
+                      {articleCharacterCount(caseItem.article).toLocaleString()} 字符 · {caseItem.article.sections.length} 章
+                    </span>
+                  </div>
+                  <label className="mt-4 block">
+                    <span className="text-xs font-medium text-slate-600">导读</span>
+                    <textarea
+                      value={caseItem.article.standfirst}
+                      onChange={(event) => update("article", { ...caseItem.article!, standfirst: event.target.value })}
+                      className="admin-textarea mt-1 h-28 bg-white"
+                    />
+                  </label>
+                  <label className="mt-3 block">
+                    <span className="text-xs font-medium text-slate-600">关键结论（每行一项）</span>
+                    <textarea
+                      value={toText(caseItem.article.keyFindings)}
+                      onChange={(event) => update("article", { ...caseItem.article!, keyFindings: lines(event.target.value) })}
+                      className="admin-textarea mt-1 h-28 bg-white"
+                    />
+                  </label>
+                  <div className="mt-4 space-y-4">
+                    {caseItem.article.sections.map((section, index) => (
+                      <article key={`${section.id}-${index}`} className="rounded border border-slate-200 bg-white p-4">
+                        <div className="flex items-center justify-between gap-3">
+                          <div>
+                            <div className="text-[11px] font-semibold uppercase tracking-wide text-teal-700">{section.id}</div>
+                            <h3 className="mt-0.5 text-sm font-semibold text-slate-900">{articleSectionTitles[section.id]}</h3>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => update("article", { ...caseItem.article!, sections: caseItem.article!.sections.filter((_, sectionIndex) => sectionIndex !== index) })}
+                            className="text-xs text-slate-400 hover:text-rose-600"
+                          >
+                            删除本章
+                          </button>
+                        </div>
+                        <label className="mt-3 block">
+                          <span className="text-xs font-medium text-slate-500">本章摘要</span>
+                          <input
+                            value={section.summary}
+                            onChange={(event) => updateArticleSection(index, { summary: event.target.value })}
+                            className="admin-input mt-1"
+                          />
+                        </label>
+                        <label className="mt-3 block">
+                          <span className="text-xs font-medium text-slate-500">正文段落（空行分段）</span>
+                          <textarea
+                            value={toParagraphText(section.paragraphs)}
+                            onChange={(event) => updateArticleSection(index, { paragraphs: paragraphs(event.target.value) })}
+                            className="admin-textarea mt-1 min-h-48"
+                          />
+                        </label>
+                        <label className="mt-3 block">
+                          <span className="text-xs font-medium text-slate-500">要点（每行一项）</span>
+                          <textarea
+                            value={toText(section.points)}
+                            onChange={(event) => updateArticleSection(index, { points: lines(event.target.value) })}
+                            className="admin-textarea mt-1 h-24"
+                          />
+                        </label>
+                        {section.evidenceRefs.length > 0 && (
+                          <div className="mt-2 text-[11px] text-slate-400">证据引用：{section.evidenceRefs.join("、")}</div>
+                        )}
+                      </article>
+                    ))}
+                  </div>
+                </section>
+              )}
+
+              {(caseItem.media || []).length > 0 && (
+                <section className="rounded border border-slate-200 bg-white p-4">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <div className="text-sm font-semibold text-slate-800">图片证据复核</div>
+                      <div className="mt-1 text-xs text-slate-500">
+                        AI只根据页码和附近文字完成初步编排；必须查看原图、修改图注并人工确认。
+                      </div>
+                    </div>
+                    <span className="text-xs text-slate-400">
+                      {(caseItem.media || []).filter((asset) => asset.included).length} / {caseItem.media?.length} 张入选
+                    </span>
+                  </div>
+                  <div className="mt-4 grid gap-4 xl:grid-cols-2">
+                    {caseItem.media?.map((asset, index) => (
+                      <article
+                        key={asset.id}
+                        className={`overflow-hidden rounded border ${asset.included ? "border-slate-200" : "border-slate-200 opacity-55"}`}
+                      >
+                        <div className="aspect-[16/10] bg-slate-100">
+                          <Image
+                            src={asset.url}
+                            alt={asset.alt || asset.caption}
+                            width={1600}
+                            height={1000}
+                            unoptimized
+                            className="h-full w-full object-contain"
+                          />
+                        </div>
+                        <div className="space-y-3 p-3">
+                          <div className="flex items-center justify-between gap-3 text-[11px]">
+                            <span className="font-medium text-teal-700">
+                              {asset.sourceKind === "pdf_page"
+                                ? `PDF 第${asset.pageNumber}页`
+                                : "网页原图"}
+                            </span>
+                            <span className="text-slate-400">
+                              AI置信度 {Math.round(asset.confidence * 100)}%
+                            </span>
+                          </div>
+                          <div className="grid grid-cols-2 gap-2">
+                            <label>
+                              <span className="text-[11px] font-medium text-slate-500">图片类型</span>
+                              <select
+                                value={asset.kind}
+                                onChange={(event) => updateMediaAsset(index, { kind: event.target.value as CaseMediaKind, reviewed: false })}
+                                className="admin-input mt-1"
+                              >
+                                {Object.entries(mediaKindLabels).map(([value, label]) => (
+                                  <option key={value} value={value}>{label}</option>
+                                ))}
+                              </select>
+                            </label>
+                            <label>
+                              <span className="text-[11px] font-medium text-slate-500">插入章节</span>
+                              <select
+                                value={asset.sectionId}
+                                onChange={(event) => updateMediaAsset(index, { sectionId: event.target.value as CaseMediaPlanItem["sectionId"], reviewed: false })}
+                                className="admin-input mt-1"
+                              >
+                                {articleSectionOrder.map((sectionId) => (
+                                  <option key={sectionId} value={sectionId}>{articleSectionTitles[sectionId]}</option>
+                                ))}
+                              </select>
+                            </label>
+                          </div>
+                          <label className="block">
+                            <span className="text-[11px] font-medium text-slate-500">图注</span>
+                            <textarea
+                              value={asset.caption}
+                              onChange={(event) => updateMediaAsset(index, { caption: event.target.value, reviewed: false })}
+                              className="admin-textarea mt-1 h-20"
+                            />
+                          </label>
+                          <label className="block">
+                            <span className="text-[11px] font-medium text-slate-500">图片内容说明（无障碍文本）</span>
+                            <input
+                              value={asset.alt}
+                              onChange={(event) => updateMediaAsset(index, { alt: event.target.value, reviewed: false })}
+                              className="admin-input mt-1"
+                            />
+                          </label>
+                          <p className="rounded bg-slate-50 p-2 text-[11px] leading-5 text-slate-500">{asset.reason}</p>
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <label className="flex items-center gap-2 text-xs text-slate-600">
+                              <input
+                                type="checkbox"
+                                checked={asset.included}
+                                onChange={(event) => updateMediaAsset(index, { included: event.target.checked, reviewed: false })}
+                                className="accent-teal-700"
+                              />
+                              收录到公开文章
+                            </label>
+                            <label className="flex items-center gap-2 text-xs font-medium text-slate-700">
+                              <input
+                                type="checkbox"
+                                checked={asset.reviewed}
+                                disabled={!asset.included}
+                                onChange={(event) => updateMediaAsset(index, { reviewed: event.target.checked, needsReview: !event.target.checked })}
+                                className="accent-teal-700"
+                              />
+                              已核对原图、图注与章节
+                            </label>
+                          </div>
+                        </div>
+                      </article>
+                    ))}
+                  </div>
+                </section>
+              )}
+
+              {caseItem.researchReport && (
+                <details className="rounded border border-slate-200 p-4">
+                  <summary className="cursor-pointer text-xs font-medium text-slate-600">旧版 Markdown 研究报告（兼容内容）</summary>
+                  <textarea
+                    value={caseItem.researchReport}
+                    onChange={(event) => update("researchReport", event.target.value)}
+                    className="admin-textarea mt-3 min-h-72"
+                  />
+                </details>
+              )}
             </div>
           </section>
 
@@ -533,14 +1170,70 @@ export default function AdminPage() {
                   <span className="text-xs font-medium text-slate-600">来源说明 *</span>
                   <textarea value={caseItem.sourceNote} onChange={(event) => update("sourceNote", event.target.value)} className="admin-textarea h-24" />
                 </label>
-                <div className="rounded border border-amber-200 bg-amber-50 p-3">
-                  <div className="text-xs font-semibold text-amber-800">需要人工核验</div>
-                  <ul className="mt-2 space-y-1 text-xs leading-5 text-amber-700">
-                    <li>• 3,200万元投资金额是否来自正式公告</li>
-                    <li>• 建设主体和运营主体尚未完全明确</li>
-                    <li>• 预期成效暂无验收指标支撑</li>
-                  </ul>
-                </div>
+                {assessments.length > 0 && (
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <div className="text-xs font-semibold text-slate-700">AI 字段证据</div>
+                      {parseMeta && (
+                        <div className="text-[11px] text-slate-400">
+                          {providerLabels[parseMeta.provider]} · {parseMeta.model}
+                        </div>
+                      )}
+                    </div>
+                    {assessments.map((assessment) => (
+                      <div
+                        key={assessment.field}
+                        className={`rounded border p-3 ${assessment.needsReview ? "border-amber-200 bg-amber-50" : "border-emerald-200 bg-emerald-50"}`}
+                      >
+                        <div className="flex items-center justify-between gap-3">
+                          <span className="text-xs font-semibold text-slate-800">{assessmentLabels[assessment.field]}</span>
+                          <span className="text-xs font-medium text-slate-600">{Math.round(assessment.confidence * 100)}%</span>
+                        </div>
+                        <div className="mt-1.5 text-xs leading-5 text-slate-600">
+                          {assessment.evidence || "资料中没有找到直接证据"}
+                        </div>
+                        {assessment.reason && <div className="mt-1 text-[11px] leading-4 text-slate-500">{assessment.reason}</div>}
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {reviewItems.length > 0 && (
+                  <div className="rounded border border-amber-200 bg-amber-50 p-3">
+                    <div className="text-xs font-semibold text-amber-800">需要人工核验</div>
+                    <ul className="mt-2 space-y-1 text-xs leading-5 text-amber-700">
+                      {reviewItems.map((item) => <li key={item}>• {item}</li>)}
+                    </ul>
+                  </div>
+                )}
+                {parseMeta && (
+                  <div className="rounded bg-slate-50 p-2.5 text-[11px] leading-5 text-slate-500">
+                    本次调用：输入 {parseMeta.inputTokens.toLocaleString()} tokens · 输出 {parseMeta.outputTokens.toLocaleString()} tokens
+                    {parseMeta.researchMode ? ` · 联网检索 ${parseMeta.searchQueryCount} 组` : ""}
+                    {` · 估算费用 ¥${parseMeta.estimatedCostCny.toFixed(4)}`}
+                    {parseMeta.fallbackUsed ? " · 已降级为基础解析" : ""}
+                  </div>
+                )}
+                {(caseItem.researchSources?.length || 0) > 0 && (
+                  <div className="rounded border border-slate-200 p-3">
+                    <div className="text-xs font-semibold text-slate-700">
+                      联网来源（{caseItem.researchSources?.length}）
+                    </div>
+                    <ul className="mt-2 space-y-2 text-xs leading-5">
+                      {caseItem.researchSources?.map((source) => (
+                        <li key={source.url}>
+                          <a
+                            href={source.url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-teal-700 underline decoration-teal-200 underline-offset-2 hover:text-teal-900"
+                          >
+                            {source.title || source.url}
+                          </a>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
               </div>
             </section>
 
@@ -586,7 +1279,8 @@ export default function AdminPage() {
                   />
                 </label>
                 <p className="rounded bg-slate-50 p-2.5 text-xs leading-5 text-slate-500">
-                  当前按“市级位置”入库。后续获得明确项目地址时，再升级为空间精确点位。
+                  AI 会优先采用原文位置；只明确省份时，以省会城市中心作为地图展示锚点。所有推断位置仍需人工确认。
+                  {caseItem.locationReason ? ` 当前说明：${caseItem.locationReason}` : ""}
                 </p>
               </div>
             </section>
@@ -650,7 +1344,7 @@ export default function AdminPage() {
         </section>
 
         <div className="mt-4 rounded border border-blue-200 bg-blue-50 px-4 py-3 text-xs leading-5 text-blue-700">
-          原型数据仅保存在当前浏览器，用于验证导入、复核、定位、发布和前台联动流程；清除浏览器数据或更换设备后不会同步。
+          AI 解析已真实接入；解析后的草稿仍只保存在当前浏览器。清除浏览器数据或更换设备后不会同步，正式数据库与账号权限将在后续阶段接入。
         </div>
       </section>
     </main>
