@@ -74,17 +74,35 @@ test("renders the V1.4 map case workbench as the default home page", async () =>
 
   assert.equal(response.status, 200);
   const html = await response.text();
-  assert.match(html, /地图案例工作台/);
+  assert.match(html, /Digital X 城市数智应用案例库/);
+  assert.match(html, /Digital X Urban Digital Intelligence Application Case Library/);
   assert.match(html, /案例目录/);
   assert.match(html, /按分类/);
   assert.match(html, /按地区/);
   assert.match(html, /按专题/);
   assert.match(html, /筛选与分析/);
-  assert.match(html, /完整阅读/);
   assert.match(html, /城市聚合图层/);
   assert.match(html, /当前工作台状态可分享/);
   assert.match(html, /省域/);
-  assert.match(html, /项目阶段/);
+});
+
+test("selecting a directory case does not silently narrow the directory to one city", async () => {
+  const source = await readFile(
+    new URL("../app/workbench/page.tsx", import.meta.url),
+    "utf8",
+  );
+  const selectCaseBody = source.match(
+    /const selectCase = useCallback\(\(item: SmartCityCase\) => \{([\s\S]*?)\n  \}, \[\]\);/,
+  )?.[1];
+
+  assert.ok(selectCaseBody);
+  assert.match(selectCaseBody, /setSelectedCaseSlug\(item\.slug\)/);
+  assert.match(selectCaseBody, /setMapLevel\("project"\)/);
+  assert.doesNotMatch(selectCaseBody, /setActiveProvince/);
+  assert.doesNotMatch(selectCaseBody, /setActiveCity/);
+  assert.match(source, /aria-label="关闭案例预览"/);
+  assert.match(source, /max-w-xl/);
+  assert.match(source, /完整阅读/);
 });
 
 test("keeps the V1.3 public home available as a legacy archive", async () => {

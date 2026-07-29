@@ -295,8 +295,8 @@ html {
 
 .brand-preview-card {
   border: 1px solid rgba(8, 127, 232, 0.18);
-  background: rgba(255, 255, 255, 0.97);
-  box-shadow: 0 20px 48px rgba(9, 55, 119, 0.2), 0 0 0 1px rgba(255, 255, 255, 0.78) inset;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 12px 30px rgba(9, 55, 119, 0.15), 0 0 0 1px rgba(255, 255, 255, 0.72) inset;
 }
 
 .brand-preview-visual {

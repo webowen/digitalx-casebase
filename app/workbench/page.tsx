@@ -406,12 +406,16 @@ export default function MapWorkbench() {
     () => publishedCases.find((item) => item.slug === selectedCaseSlug) ?? null,
     [publishedCases, selectedCaseSlug],
   );
-  const effectiveSelectedCase = useMemo(
+  const activeSelectedCase = useMemo(
     () =>
       selectedCase && visibleCases.some((item) => item.id === selectedCase.id)
         ? selectedCase
-        : visibleCases[0] ?? null,
+        : null,
     [selectedCase, visibleCases],
+  );
+  const effectiveSelectedCase = useMemo(
+    () => activeSelectedCase ?? visibleCases[0] ?? null,
+    [activeSelectedCase, visibleCases],
   );
   const casePoints = useMemo<AMapCasePoint[]>(
     () =>
@@ -432,12 +436,10 @@ export default function MapWorkbench() {
       })),
     [mappableVisibleCases],
   );
-  const previewMedia = effectiveSelectedCase?.media?.find((asset) => asset.included && asset.reviewed);
+  const previewMedia = activeSelectedCase?.media?.find((asset) => asset.included && asset.reviewed);
 
   const selectCase = useCallback((item: SmartCityCase) => {
     setSelectedCaseSlug(item.slug);
-    setActiveProvince(item.province);
-    setActiveCity(item.city);
     setMapLevel("project");
     setLeftOpen(false);
   }, []);
@@ -494,6 +496,11 @@ export default function MapWorkbench() {
     setMapLevel("national");
   }, []);
 
+  const closePreview = useCallback(() => {
+    setSelectedCaseSlug("");
+    setMapLevel(activeCity !== "全部" ? "city" : activeProvince !== "全部" ? "province" : "national");
+  }, [activeCity, activeProvince]);
+
   const activeFilterCount =
     [category, year, evidenceLevel, activeProvince, activeCity].filter((item) => item !== "全部").length +
     (keyword.trim() ? 1 : 0);
@@ -514,8 +521,10 @@ export default function MapWorkbench() {
             />
           </span>
           <span className="hidden md:block">
-            <strong className="brand-title block text-sm">地图案例工作台</strong>
-            <span className="brand-subtitle block text-[10px]">Digital + Innovate · V1.4</span>
+            <strong className="brand-title block whitespace-nowrap text-sm">Digital X 城市数智应用案例库</strong>
+            <span className="brand-subtitle block whitespace-nowrap text-[9px]">
+              Digital X Urban Digital Intelligence Application Case Library
+            </span>
           </span>
         </Link>
         <button type="button" onClick={() => setLeftOpen(true)} className="flex h-10 items-center rounded-md border border-slate-200 px-3 text-sm lg:hidden">
@@ -585,7 +594,7 @@ export default function MapWorkbench() {
           <div className="min-h-0 flex-1 overflow-y-auto">
             <DirectoryTree
               groups={directory}
-              selectedCaseId={effectiveSelectedCase?.id}
+              selectedCaseId={activeSelectedCase?.id}
               onSelectCase={selectCase}
             />
           </div>
@@ -597,7 +606,7 @@ export default function MapWorkbench() {
             casePoints={casePoints}
             displayMode={mapLevel === "national" ? "city" : "case"}
             activeCity={activeCity}
-            activeCaseId={effectiveSelectedCase?.id}
+            activeCaseId={activeSelectedCase?.id}
             onSelectCity={selectCity}
             onSelectCase={selectCasePoint}
             onClearFilters={clearFilters}
@@ -632,58 +641,60 @@ export default function MapWorkbench() {
             {activeCity !== "全部" ? ` / ${activeCity}` : ""} · {visibleCases.length} 案例
           </div>
 
-          {effectiveSelectedCase && (
-            <article className="brand-preview-card absolute inset-x-3 bottom-3 z-20 mx-auto max-w-3xl overflow-hidden rounded-2xl backdrop-blur sm:bottom-5">
-              <div className="grid sm:grid-cols-[180px_minmax(0,1fr)]">
-                <div className="brand-preview-visual relative hidden min-h-52 overflow-hidden sm:block">
+          {activeSelectedCase && (
+            <article className="brand-preview-card absolute inset-x-3 bottom-3 z-20 mx-auto max-w-xl overflow-hidden rounded-xl backdrop-blur sm:bottom-4">
+              <button
+                type="button"
+                onClick={closePreview}
+                aria-label="关闭案例预览"
+                className="absolute right-2 top-2 z-10 flex h-7 w-7 items-center justify-center rounded-full border border-slate-200 bg-white/90 text-sm text-slate-500 shadow-sm transition hover:bg-white hover:text-slate-900"
+              >
+                ×
+              </button>
+              <div className="grid sm:grid-cols-[112px_minmax(0,1fr)]">
+                <div className="brand-preview-visual relative hidden min-h-40 overflow-hidden sm:block">
                   {previewMedia ? (
                     <Image
                       src={previewMedia.url}
                       alt={previewMedia.alt}
                       fill
-                      sizes="180px"
+                      sizes="112px"
                       className="object-cover"
                       unoptimized
                     />
                   ) : (
-                    <div className="absolute inset-0 flex flex-col justify-end p-4 text-white">
-                      <span className="text-[10px] font-bold tracking-[0.16em] text-cyan-100">DIGITAL + CASE</span>
-                      <strong className="mt-2 text-sm leading-5">{effectiveSelectedCase.category}</strong>
-                      <span className="mt-1 text-[11px] text-white/70">暂无已复核案例图片</span>
+                    <div className="absolute inset-0 flex flex-col justify-end p-3 text-white">
+                      <span className="text-[9px] font-bold tracking-[0.14em] text-cyan-100">DIGITAL X CASE</span>
+                      <strong className="mt-1.5 text-xs leading-5">{activeSelectedCase.category}</strong>
+                      <span className="mt-1 text-[9px] text-white/70">暂无已复核图片</span>
                     </div>
                   )}
                 </div>
-                <div className="min-w-0 p-4 sm:p-5">
-                  <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
-                    <span className="brand-link font-medium">{effectiveSelectedCase.category}</span>
+                <div className="min-w-0 p-3 pr-11 sm:p-4 sm:pr-12">
+                  <div className="flex flex-wrap items-center gap-1.5 text-[10px] text-slate-500">
+                    <span className="brand-link font-medium">{activeSelectedCase.category}</span>
                     <span>·</span>
-                    <span>{effectiveSelectedCase.province} {effectiveSelectedCase.city} {effectiveSelectedCase.district ?? ""}</span>
+                    <span>{activeSelectedCase.province} {activeSelectedCase.city} {activeSelectedCase.district ?? ""}</span>
                     <span>·</span>
-                    <span>{effectiveSelectedCase.year}</span>
-                    <span className="rounded bg-slate-100 px-1.5 py-0.5">证据 {effectiveSelectedCase.evidenceLevel}</span>
+                    <span>{activeSelectedCase.year}</span>
+                    <span className="rounded bg-slate-100 px-1.5 py-0.5">证据 {activeSelectedCase.evidenceLevel}</span>
                   </div>
-                  <h2 className="mt-2 text-base font-semibold leading-6 text-slate-950 sm:text-lg">
-                    {effectiveSelectedCase.title}
+                  <h2 className="mt-1.5 line-clamp-2 text-sm font-semibold leading-5 text-slate-950">
+                    {activeSelectedCase.title}
                   </h2>
-                  <p className="mt-2 line-clamp-2 text-xs leading-5 text-slate-600 sm:text-sm sm:leading-6">
-                    {effectiveSelectedCase.summary}
+                  <p className="mt-1.5 line-clamp-2 text-[11px] leading-[18px] text-slate-600">
+                    {activeSelectedCase.summary}
                   </p>
-                  <div className="mt-3 grid gap-2 text-[11px] text-slate-600 sm:grid-cols-2">
-                    <p><span className="text-slate-400">建设主体：</span>{effectiveSelectedCase.owner}</p>
-                    <p><span className="text-slate-400">项目阶段：</span>{effectiveSelectedCase.projectStage ?? "待核验"}</p>
-                    <p className="sm:col-span-2"><span className="text-slate-400">核心建设：</span>{effectiveSelectedCase.solution.slice(0, 2).join("；")}</p>
+                  <div className="mt-2 flex min-w-0 flex-wrap gap-x-4 gap-y-1 text-[10px] text-slate-500">
+                    <p className="truncate"><span className="text-slate-400">建设主体：</span>{activeSelectedCase.owner}</p>
+                    <p><span className="text-slate-400">阶段：</span>{activeSelectedCase.projectStage ?? "待核验"}</p>
                   </div>
-                  <div className="mt-3 flex flex-wrap gap-1.5">
-                    {effectiveSelectedCase.aiTags.slice(0, 4).map((tag) => (
-                      <span key={tag} className="rounded-full border border-slate-200 px-2 py-1 text-[10px] text-slate-500">{tag}</span>
-                    ))}
-                  </div>
-                  <div className="mt-3 flex flex-wrap items-center gap-2">
-                    <Link href={`/cases/${effectiveSelectedCase.slug}`} className="brand-gradient-button rounded-full px-4 py-2 text-xs font-semibold text-white">
+                  <div className="mt-2.5 flex flex-wrap items-center gap-2">
+                    <Link href={`/cases/${activeSelectedCase.slug}`} className="brand-gradient-button rounded-full px-3 py-1.5 text-[11px] font-semibold text-white">
                       完整阅读
                     </Link>
-                    <span className="text-[10px] text-slate-400">
-                      {effectiveSelectedCase.locationLevel} · 坐标可信度 {Math.round(effectiveSelectedCase.locationConfidence * 100)}%
+                    <span className="text-[9px] text-slate-400">
+                      {activeSelectedCase.locationLevel} · 坐标可信度 {Math.round(activeSelectedCase.locationConfidence * 100)}%
                     </span>
                   </div>
                 </div>
