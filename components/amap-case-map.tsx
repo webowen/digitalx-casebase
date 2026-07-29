@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import type { LocationLevel } from "@/lib/case-model";
 
 export type AMapCityPoint = {
   city: string;
@@ -10,10 +11,31 @@ export type AMapCityPoint = {
   lat: number;
 };
 
-type AMapPointData = AMapCityPoint & {
+export type AMapCasePoint = {
+  id: string;
+  title: string;
+  city: string;
+  province: string;
+  category: string;
+  lng: number;
+  lat: number;
+  locationLevel: LocationLevel;
+  locationConfidence: number;
+};
+
+type CityPointData = AMapCityPoint & {
+  kind: "city";
   lnglat: [number, number];
   active: boolean;
 };
+
+type CasePointData = AMapCasePoint & {
+  kind: "case";
+  lnglat: [number, number];
+  active: boolean;
+};
+
+type AMapPointData = CityPointData | CasePointData;
 
 type MarkerLike = {
   setContent(content: HTMLElement | string): void;
@@ -111,25 +133,38 @@ function cityLabel(city: string) {
   return city.endsWith("市") ? city.slice(0, -1) : city;
 }
 
-function createCityMarker(
+function createPointMarker(
   AMap: AMapNamespace,
   context: ClusterRenderContext,
   onSelectCity: (city: string) => void,
+  onSelectCase: (id: string) => void,
 ) {
   const point = context.data[0];
-  const size = Math.max(46, Math.min(72, 40 + point.count * 10));
+  if (point.kind === "city") {
+    const size = Math.max(46, Math.min(72, 40 + point.count * 10));
+    const marker = document.createElement("button");
+    marker.type = "button";
+    marker.className = `amap-city-marker${point.active ? " is-active" : ""}`;
+    marker.style.width = `${size}px`;
+    marker.style.height = `${size}px`;
+    marker.setAttribute("aria-label", `${point.city}，${point.count} 个案例`);
+    marker.title = `${point.city} · ${point.count} 个案例`;
+    marker.innerHTML = `<strong>${cityLabel(point.city)}</strong><span>${point.count} 个</span>`;
+    marker.addEventListener("click", () => onSelectCity(point.active ? "全部" : point.city));
+    context.marker.setContent(marker);
+    context.marker.setOffset(new AMap.Pixel(-size / 2, -size / 2));
+    return;
+  }
+
   const marker = document.createElement("button");
   marker.type = "button";
-  marker.className = `amap-city-marker${point.active ? " is-active" : ""}`;
-  marker.style.width = `${size}px`;
-  marker.style.height = `${size}px`;
-  marker.setAttribute("aria-label", `${point.city}，${point.count} 个案例`);
-  marker.title = `${point.city} · ${point.count} 个案例`;
-  marker.innerHTML = `<strong>${cityLabel(point.city)}</strong><span>${point.count} 个</span>`;
-  marker.addEventListener("click", () => onSelectCity(point.active ? "全部" : point.city));
-
+  marker.className = `amap-case-marker${point.active ? " is-active" : ""}`;
+  marker.setAttribute("aria-label", `查看案例：${point.title}`);
+  marker.title = `${point.title} · 位置置信度 ${Math.round(point.locationConfidence * 100)}%`;
+  marker.innerHTML = `<span></span><strong>${point.title}</strong>`;
+  marker.addEventListener("click", () => onSelectCase(point.id));
   context.marker.setContent(marker);
-  context.marker.setOffset(new AMap.Pixel(-size / 2, -size / 2));
+  context.marker.setOffset(new AMap.Pixel(-14, -34));
 }
 
 function createClusterMarker(AMap: AMapNamespace, context: ClusterRenderContext) {
@@ -138,21 +173,36 @@ function createClusterMarker(AMap: AMapNamespace, context: ClusterRenderContext)
   marker.className = "amap-cluster-marker";
   marker.style.width = `${size}px`;
   marker.style.height = `${size}px`;
-  marker.innerHTML = `<strong>${context.count}</strong><span>城市</span>`;
+  marker.innerHTML = `<strong>${context.count}</strong><span>${context.data[0]?.kind === "case" ? "案例" : "城市"}</span>`;
   context.marker.setContent(marker);
   context.marker.setOffset(new AMap.Pixel(-size / 2, -size / 2));
 }
 
+const locationZoom: Record<LocationLevel, number> = {
+  省级: 7,
+  市级: 10,
+  区县级: 12,
+  "园区/项目点": 14,
+};
+
 export function AMapCaseMap({
   cities,
+  casePoints = [],
+  displayMode = "city",
   activeCity,
+  activeCaseId,
   onSelectCity,
+  onSelectCase = () => undefined,
   onClearFilters,
   className = "h-[470px] sm:h-[540px]",
 }: {
   cities: AMapCityPoint[];
+  casePoints?: AMapCasePoint[];
+  displayMode?: "city" | "case";
   activeCity: string;
+  activeCaseId?: string;
   onSelectCity: (city: string) => void;
+  onSelectCase?: (id: string) => void;
   onClearFilters: () => void;
   className?: string;
 }) {
@@ -170,7 +220,6 @@ export function AMapCaseMap({
     loadAMap()
       .then((AMap) => {
         if (cancelled || !containerRef.current) return;
-
         amapRef.current = AMap;
         const map = new AMap.Map(containerRef.current, {
           center: [104.1954, 35.8617],
@@ -209,39 +258,56 @@ export function AMapCaseMap({
 
     clusterRef.current?.setMap(null);
     clusterRef.current = null;
+    const sourcePoints = displayMode === "case" ? casePoints : cities;
+    if (sourcePoints.length === 0) return;
 
-    if (cities.length === 0) return;
-
-    const points: AMapPointData[] = cities.map((city) => ({
-      ...city,
-      lnglat: [city.lng, city.lat],
-      active: city.city === activeCity,
-    }));
+    const points: AMapPointData[] =
+      displayMode === "case"
+        ? casePoints.map((point) => ({
+            ...point,
+            kind: "case",
+            lnglat: [point.lng, point.lat],
+            active: point.id === activeCaseId,
+          }))
+        : cities.map((city) => ({
+            ...city,
+            kind: "city",
+            lnglat: [city.lng, city.lat],
+            active: city.city === activeCity,
+          }));
 
     const cluster = new AMap.MarkerCluster(map, points, {
-      gridSize: 68,
-      maxZoom: 10,
+      gridSize: displayMode === "case" ? 52 : 68,
+      maxZoom: displayMode === "case" ? 15 : 10,
       averageCenter: true,
       zoomOnClick: true,
-      renderMarker: (context: ClusterRenderContext) => createCityMarker(AMap, context, onSelectCity),
+      renderMarker: (context: ClusterRenderContext) =>
+        createPointMarker(AMap, context, onSelectCity, onSelectCase),
       renderClusterMarker: (context: ClusterRenderContext) => createClusterMarker(AMap, context),
     });
     clusterRef.current = cluster;
 
-    const selected = cities.find((city) => city.city === activeCity);
-    if (selected) {
-      map.setZoomAndCenter(8, [selected.lng, selected.lat], false, 350);
-    } else if (cities.length === 1) {
-      map.setZoomAndCenter(7, [cities[0].lng, cities[0].lat], false, 350);
+    if (displayMode === "case") {
+      const selected = casePoints.find((point) => point.id === activeCaseId);
+      if (selected) {
+        map.setZoomAndCenter(locationZoom[selected.locationLevel], [selected.lng, selected.lat], false, 350);
+      } else if (casePoints.length === 1) {
+        map.setZoomAndCenter(locationZoom[casePoints[0].locationLevel], [casePoints[0].lng, casePoints[0].lat], false, 350);
+      } else {
+        window.setTimeout(() => map.setFitView(), 80);
+      }
     } else {
-      window.setTimeout(() => map.setFitView(), 80);
+      const selected = cities.find((city) => city.city === activeCity);
+      if (selected) map.setZoomAndCenter(8, [selected.lng, selected.lat], false, 350);
+      else if (cities.length === 1) map.setZoomAndCenter(7, [cities[0].lng, cities[0].lat], false, 350);
+      else window.setTimeout(() => map.setFitView(), 80);
     }
 
     return () => {
       cluster.setMap(null);
       if (clusterRef.current === cluster) clusterRef.current = null;
     };
-  }, [activeCity, cities, onSelectCity, status]);
+  }, [activeCaseId, activeCity, casePoints, cities, displayMode, onSelectCase, onSelectCity, status]);
 
   function retryLoad() {
     document.querySelector("script[data-digitalx-amap]")?.remove();
@@ -250,6 +316,8 @@ export function AMapCaseMap({
     setErrorMessage("");
     setRetry((value) => value + 1);
   }
+
+  const pointCount = displayMode === "case" ? casePoints.length : cities.length;
 
   return (
     <div className={`relative overflow-hidden bg-[#edf3f3] ${className}`}>
@@ -276,7 +344,7 @@ export function AMapCaseMap({
         </div>
       )}
 
-      {status === "ready" && cities.length === 0 && (
+      {status === "ready" && pointCount === 0 && (
         <div className="absolute inset-0 z-20 flex items-center justify-center bg-white/60 backdrop-blur-[1px]">
           <div className="rounded-md border border-slate-200 bg-white px-5 py-4 text-center shadow-sm">
             <div className="font-medium">没有符合条件的地图点位</div>
@@ -289,7 +357,7 @@ export function AMapCaseMap({
 
       {status === "ready" && (
         <div className="pointer-events-none absolute left-3 top-3 z-10 rounded bg-white/95 px-2.5 py-1.5 text-[11px] font-medium text-slate-600 shadow-sm">
-          高德地图 JS API 2.0
+          高德地图 · {displayMode === "case" ? "精确案例点位" : "城市聚合"}
         </div>
       )}
     </div>

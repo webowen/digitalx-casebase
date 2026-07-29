@@ -119,6 +119,65 @@ html {
   background: #0f172a;
 }
 
+.amap-case-marker {
+  position: relative;
+  display: flex;
+  max-width: 190px;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid rgba(15, 118, 110, 0.35);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.96);
+  padding: 6px 10px 6px 7px;
+  color: #0f172a;
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.2);
+  cursor: pointer;
+}
+
+.amap-case-marker::after {
+  position: absolute;
+  bottom: -7px;
+  left: 10px;
+  width: 12px;
+  height: 12px;
+  border-right: 1px solid rgba(15, 118, 110, 0.35);
+  border-bottom: 1px solid rgba(15, 118, 110, 0.35);
+  background: white;
+  content: "";
+  transform: rotate(45deg);
+}
+
+.amap-case-marker > span {
+  z-index: 1;
+  width: 10px;
+  height: 10px;
+  flex: none;
+  border: 2px solid white;
+  border-radius: 999px;
+  background: #0f766e;
+  box-shadow: 0 0 0 2px rgba(15, 118, 110, 0.2);
+}
+
+.amap-case-marker > strong {
+  overflow: hidden;
+  font-size: 11px;
+  line-height: 16px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.amap-case-marker.is-active {
+  border-color: #0f172a;
+  background: #0f172a;
+  color: white;
+  box-shadow: 0 0 0 4px rgba(94, 234, 212, 0.38), 0 8px 24px rgba(15, 23, 42, 0.32);
+}
+
+.amap-case-marker.is-active::after {
+  border-color: #0f172a;
+  background: #0f172a;
+}
+
 .amap-cluster-marker strong {
   font-size: 15px;
 }

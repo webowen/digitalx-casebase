@@ -80,6 +80,10 @@ test("renders the V1.4 map case workbench without replacing the home page", asyn
   assert.match(html, /按专题/);
   assert.match(html, /筛选与分析/);
   assert.match(html, /完整阅读/);
+  assert.match(html, /城市聚合图层/);
+  assert.match(html, /当前工作台状态可分享/);
+  assert.match(html, /省域/);
+  assert.match(html, /项目阶段/);
 });
 
 test("renders the immersive paged case reader", async () => {
