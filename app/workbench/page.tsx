@@ -1,0 +1,593 @@
+"use client";
+
+import Link from "next/link";
+import { useEffect, useMemo, useState } from "react";
+import { AMapCaseMap } from "@/components/amap-case-map";
+import {
+  categories,
+  categoryColors,
+  type CaseCategory,
+  type EvidenceLevel,
+  type SmartCityCase,
+} from "@/lib/case-model";
+import { cityStats } from "@/lib/case-analytics";
+import { getLocalCases } from "@/lib/local-cases";
+import { getPublishedCases } from "@/lib/mock-cases";
+
+type DirectoryMode = "category" | "region" | "topic";
+type FilterValue = "全部" | string;
+
+type DirectorySubgroup = {
+  label: string;
+  cases: SmartCityCase[];
+};
+
+type DirectoryGroup = {
+  label: string;
+  count: number;
+  subgroups: DirectorySubgroup[];
+};
+
+const staticPublishedCases = getPublishedCases();
+const evidenceLevels: EvidenceLevel[] = ["强", "中", "弱"];
+
+const topics = [
+  {
+    label: "城市治理与运行",
+    match: (item: SmartCityCase) =>
+      ["城市运行", "应急治理", "政务服务"].includes(item.category),
+  },
+  {
+    label: "工程建设数字化",
+    match: (item: SmartCityCase) =>
+      item.category === "CIM / 数字孪生" ||
+      item.aiTags.some((tag) => ["BIM", "GIS", "工程建设", "数字孪生"].includes(tag)),
+  },
+  {
+    label: "新产业与新场景",
+    match: (item: SmartCityCase) =>
+      ["低空经济", "产业园区"].includes(item.category),
+  },
+  {
+    label: "交通与生态韧性",
+    match: (item: SmartCityCase) =>
+      ["智慧交通", "生态环保"].includes(item.category),
+  },
+];
+
+function matchesKeyword(item: SmartCityCase, keyword: string) {
+  const search = keyword.trim().toLowerCase();
+  if (!search) return true;
+  return [
+    item.title,
+    item.province,
+    item.city,
+    item.district,
+    item.category,
+    item.summary,
+    item.owner,
+    ...item.aiTags,
+    ...item.solution,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase()
+    .includes(search);
+}
+
+function groupBy<T>(items: T[], label: (item: T) => string) {
+  const groups = new Map<string, T[]>();
+  for (const item of items) {
+    const key = label(item);
+    groups.set(key, [...(groups.get(key) ?? []), item]);
+  }
+  return groups;
+}
+
+function buildDirectory(cases: SmartCityCase[], mode: DirectoryMode): DirectoryGroup[] {
+  if (mode === "category") {
+    return categories
+      .map((category) => {
+        const categoryCases = cases.filter((item) => item.category === category);
+        return {
+          label: category,
+          count: categoryCases.length,
+          subgroups: Array.from(groupBy(categoryCases, (item) => item.province))
+            .map(([label, groupedCases]) => ({ label, cases: groupedCases }))
+            .sort((a, b) => b.cases.length - a.cases.length),
+        };
+      })
+      .filter((group) => group.count > 0);
+  }
+
+  if (mode === "region") {
+    return Array.from(groupBy(cases, (item) => item.province))
+      .map(([province, provinceCases]) => ({
+        label: province,
+        count: provinceCases.length,
+        subgroups: Array.from(groupBy(provinceCases, (item) => item.city))
+          .map(([label, groupedCases]) => ({ label, cases: groupedCases }))
+          .sort((a, b) => b.cases.length - a.cases.length),
+      }))
+      .sort((a, b) => b.count - a.count);
+  }
+
+  return topics
+    .map((topic) => {
+      const topicCases = cases.filter(topic.match);
+      return {
+        label: topic.label,
+        count: topicCases.length,
+        subgroups: Array.from(groupBy(topicCases, (item) => item.category))
+          .map(([label, groupedCases]) => ({ label, cases: groupedCases }))
+          .sort((a, b) => b.cases.length - a.cases.length),
+      };
+    })
+    .filter((group) => group.count > 0);
+}
+
+function DirectoryTree({
+  groups,
+  selectedCase,
+  onSelectCase,
+}: {
+  groups: DirectoryGroup[];
+  selectedCase: SmartCityCase | null;
+  onSelectCase: (item: SmartCityCase) => void;
+}) {
+  return (
+    <div className="space-y-1 px-2 pb-5">
+      {groups.map((group, groupIndex) => (
+        <details key={group.label} open={groupIndex < 2} className="group/tree">
+          <summary className="flex cursor-pointer list-none items-center gap-2 rounded-md px-2 py-2 text-sm font-semibold text-slate-800 hover:bg-slate-100">
+            <span className="text-[10px] text-slate-400 transition group-open/tree:rotate-90">▶</span>
+            <span className="min-w-0 flex-1 truncate">{group.label}</span>
+            <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-500">
+              {group.count}
+            </span>
+          </summary>
+
+          <div className="ml-3 border-l border-slate-200 pl-2">
+            {group.subgroups.map((subgroup) => (
+              <details key={`${group.label}-${subgroup.label}`} open={groupIndex === 0}>
+                <summary className="flex cursor-pointer list-none items-center gap-2 rounded-md px-2 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50">
+                  <span className="text-[9px] text-slate-400">◆</span>
+                  <span className="min-w-0 flex-1 truncate">{subgroup.label}</span>
+                  <span className="tabular-nums text-slate-400">{subgroup.cases.length}</span>
+                </summary>
+                <div className="ml-3 border-l border-slate-100 py-1 pl-2">
+                  {subgroup.cases.map((item) => {
+                    const active = selectedCase?.id === item.id;
+                    return (
+                      <button
+                        key={item.id}
+                        type="button"
+                        onClick={() => onSelectCase(item)}
+                        className={`mb-0.5 flex w-full items-start gap-2 rounded-md px-2 py-2 text-left text-xs leading-5 transition ${
+                          active
+                            ? "bg-teal-50 font-semibold text-teal-800 ring-1 ring-inset ring-teal-200"
+                            : "text-slate-600 hover:bg-slate-50 hover:text-slate-950"
+                        }`}
+                      >
+                        <span
+                          className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full"
+                          style={{ backgroundColor: categoryColors[item.category] }}
+                        />
+                        <span>{item.title}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </details>
+            ))}
+          </div>
+        </details>
+      ))}
+      {groups.length === 0 && (
+        <div className="px-4 py-12 text-center text-sm text-slate-500">
+          当前条件下暂无案例
+        </div>
+      )}
+    </div>
+  );
+}
+
+export default function MapWorkbench() {
+  const [localCases, setLocalCases] = useState<SmartCityCase[]>([]);
+  const [directoryMode, setDirectoryMode] = useState<DirectoryMode>("category");
+  const [keyword, setKeyword] = useState("");
+  const [category, setCategory] = useState<CaseCategory | "全部">("全部");
+  const [year, setYear] = useState<FilterValue>("全部");
+  const [evidenceLevel, setEvidenceLevel] = useState<FilterValue>("全部");
+  const [activeCity, setActiveCity] = useState<FilterValue>("全部");
+  const [selectedCase, setSelectedCase] = useState<SmartCityCase | null>(null);
+  const [leftOpen, setLeftOpen] = useState(false);
+  const [rightOpen, setRightOpen] = useState(false);
+
+  useEffect(() => {
+    const syncLocalCases = () => setLocalCases(getLocalCases());
+    syncLocalCases();
+    window.addEventListener("digitalx-cases-updated", syncLocalCases);
+    window.addEventListener("storage", syncLocalCases);
+    return () => {
+      window.removeEventListener("digitalx-cases-updated", syncLocalCases);
+      window.removeEventListener("storage", syncLocalCases);
+    };
+  }, []);
+
+  const publishedCases = useMemo(
+    () => [
+      ...localCases.filter((item) => item.status === "已发布"),
+      ...staticPublishedCases,
+    ],
+    [localCases],
+  );
+
+  const allYears = useMemo(
+    () => Array.from(new Set(publishedCases.map((item) => item.year))).sort((a, b) => b - a),
+    [publishedCases],
+  );
+
+  const filteredByControls = useMemo(
+    () =>
+      publishedCases.filter(
+        (item) =>
+          matchesKeyword(item, keyword) &&
+          (category === "全部" || item.category === category) &&
+          (year === "全部" || item.year === Number(year)) &&
+          (evidenceLevel === "全部" || item.evidenceLevel === evidenceLevel),
+      ),
+    [category, evidenceLevel, keyword, publishedCases, year],
+  );
+
+  const visibleCases = useMemo(
+    () =>
+      activeCity === "全部"
+        ? filteredByControls
+        : filteredByControls.filter((item) => item.city === activeCity),
+    [activeCity, filteredByControls],
+  );
+
+  const cities = useMemo(() => cityStats(filteredByControls), [filteredByControls]);
+  const directory = useMemo(
+    () => buildDirectory(visibleCases, directoryMode),
+    [directoryMode, visibleCases],
+  );
+  const effectiveSelectedCase = useMemo(
+    () =>
+      selectedCase && visibleCases.some((item) => item.id === selectedCase.id)
+        ? selectedCase
+        : visibleCases[0] ?? null,
+    [selectedCase, visibleCases],
+  );
+
+  function selectCase(item: SmartCityCase) {
+    setSelectedCase(item);
+    setActiveCity(item.city);
+    setLeftOpen(false);
+  }
+
+  function selectCity(city: string) {
+    setActiveCity(city);
+    const firstCase =
+      city === "全部"
+        ? filteredByControls[0]
+        : filteredByControls.find((item) => item.city === city);
+    setSelectedCase(firstCase ?? null);
+  }
+
+  function clearFilters() {
+    setKeyword("");
+    setCategory("全部");
+    setYear("全部");
+    setEvidenceLevel("全部");
+    setActiveCity("全部");
+  }
+
+  const activeFilterCount =
+    [category, year, evidenceLevel, activeCity].filter((item) => item !== "全部").length +
+    (keyword.trim() ? 1 : 0);
+
+  return (
+    <main className="h-dvh overflow-hidden bg-slate-100 text-slate-950">
+      <header className="relative z-50 flex h-[60px] items-center gap-3 border-b border-slate-200 bg-white px-3 shadow-sm sm:px-4">
+        <Link href="/" className="flex shrink-0 items-center gap-2.5">
+          <span className="flex h-8 w-8 items-center justify-center rounded-md bg-slate-950 text-xs font-bold text-white">
+            DX
+          </span>
+          <span className="hidden md:block">
+            <strong className="block text-sm">地图案例工作台</strong>
+            <span className="block text-[10px] text-slate-500">DigitalX V1.4</span>
+          </span>
+        </Link>
+
+        <button
+          type="button"
+          onClick={() => setLeftOpen(true)}
+          className="flex h-10 items-center rounded-md border border-slate-200 px-3 text-sm lg:hidden"
+        >
+          目录
+        </button>
+
+        <label className="relative mx-auto w-full max-w-2xl">
+          <span className="sr-only">全局搜索案例</span>
+          <input
+            value={keyword}
+            onChange={(event) => setKeyword(event.target.value)}
+            placeholder="搜索项目、城市、场景或建设内容"
+            className="h-10 w-full rounded-lg border border-slate-200 bg-slate-50 px-4 pr-10 text-sm outline-none transition focus:border-teal-500 focus:bg-white focus:ring-2 focus:ring-teal-100"
+          />
+          <span className="pointer-events-none absolute right-3 top-2.5 text-slate-400">⌕</span>
+        </label>
+
+        <nav className="hidden shrink-0 items-center gap-1 xl:flex">
+          <button type="button" className="rounded-md bg-slate-950 px-3 py-2 text-xs font-medium text-white">
+            地图
+          </button>
+          <button type="button" disabled className="rounded-md px-3 py-2 text-xs text-slate-400" title="后续阶段开放">
+            对比
+          </button>
+          <button type="button" disabled className="rounded-md px-3 py-2 text-xs text-slate-400" title="后续阶段开放">
+            收藏
+          </button>
+        </nav>
+
+        <button
+          type="button"
+          onClick={() => setRightOpen(true)}
+          className="flex h-10 items-center rounded-md border border-slate-200 px-3 text-sm lg:hidden"
+        >
+          筛选{activeFilterCount > 0 ? ` ${activeFilterCount}` : ""}
+        </button>
+        <Link href="/admin" className="hidden shrink-0 rounded-md border border-slate-200 px-3 py-2 text-xs font-medium hover:bg-slate-50 sm:block">
+          管理端
+        </Link>
+      </header>
+
+      <section className="relative grid h-[calc(100dvh-60px)] lg:grid-cols-[320px_minmax(0,1fr)_296px]">
+        {(leftOpen || rightOpen) && (
+          <button
+            type="button"
+            aria-label="关闭面板"
+            onClick={() => {
+              setLeftOpen(false);
+              setRightOpen(false);
+            }}
+            className="absolute inset-0 z-30 bg-slate-950/30 lg:hidden"
+          />
+        )}
+
+        <aside
+          className={`absolute inset-y-0 left-0 z-40 flex w-[min(340px,88vw)] flex-col border-r border-slate-200 bg-white transition-transform lg:static lg:w-auto lg:translate-x-0 ${
+            leftOpen ? "translate-x-0" : "-translate-x-full"
+          }`}
+        >
+          <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
+            <div>
+              <p className="text-[10px] font-bold tracking-[0.14em] text-teal-700">CASE DIRECTORY</p>
+              <h1 className="mt-0.5 text-base font-semibold">案例目录</h1>
+            </div>
+            <button type="button" onClick={() => setLeftOpen(false)} className="rounded-md p-2 text-slate-500 lg:hidden">
+              ×
+            </button>
+          </div>
+
+          <div className="grid grid-cols-3 gap-1 border-b border-slate-200 p-2">
+            {([
+              ["category", "按分类"],
+              ["region", "按地区"],
+              ["topic", "按专题"],
+            ] as const).map(([mode, label]) => (
+              <button
+                key={mode}
+                type="button"
+                onClick={() => setDirectoryMode(mode)}
+                className={`rounded-md px-2 py-2 text-xs font-medium ${
+                  directoryMode === mode
+                    ? "bg-slate-950 text-white"
+                    : "text-slate-500 hover:bg-slate-100"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
+          <div className="flex items-center justify-between px-4 py-2 text-[11px] text-slate-500">
+            <span>{visibleCases.length} 个公开案例</span>
+            {activeCity !== "全部" && (
+              <button type="button" onClick={() => selectCity("全部")} className="text-teal-700 hover:underline">
+                查看全部城市
+              </button>
+            )}
+          </div>
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            <DirectoryTree groups={directory} selectedCase={effectiveSelectedCase} onSelectCase={selectCase} />
+          </div>
+        </aside>
+
+        <section className="relative min-w-0 overflow-hidden bg-[#e8eeef]">
+          <AMapCaseMap
+            cities={cities}
+            activeCity={activeCity}
+            onSelectCity={selectCity}
+            onClearFilters={clearFilters}
+            className="h-full min-h-[420px]"
+          />
+
+          <div className="pointer-events-none absolute left-3 top-3 z-10 flex flex-wrap gap-2 lg:left-4">
+            <span className="rounded-md border border-slate-200 bg-white/95 px-2.5 py-1.5 text-[11px] font-medium text-slate-600 shadow-sm">
+              {activeCity === "全部" ? "全国" : activeCity}
+            </span>
+            <span className="rounded-md border border-slate-200 bg-white/95 px-2.5 py-1.5 text-[11px] text-slate-600 shadow-sm">
+              {visibleCases.length} 案例 · {cities.length} 城市
+            </span>
+          </div>
+
+          {effectiveSelectedCase && (
+            <article className="absolute inset-x-3 bottom-3 z-20 mx-auto max-w-2xl rounded-xl border border-slate-200 bg-white/97 p-4 shadow-xl backdrop-blur sm:bottom-5 sm:p-5">
+              <div className="flex items-start gap-3">
+                <span
+                  className="mt-1 h-2.5 w-2.5 shrink-0 rounded-full"
+                  style={{ backgroundColor: categoryColors[effectiveSelectedCase.category] }}
+                />
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
+                    <span>{effectiveSelectedCase.category}</span>
+                    <span>·</span>
+                    <span>{effectiveSelectedCase.province} {effectiveSelectedCase.city}</span>
+                    <span>·</span>
+                    <span>{effectiveSelectedCase.year}</span>
+                    <span className="rounded bg-slate-100 px-1.5 py-0.5">证据 {effectiveSelectedCase.evidenceLevel}</span>
+                  </div>
+                  <h2 className="mt-2 text-base font-semibold leading-6 text-slate-950 sm:text-lg">
+                    {effectiveSelectedCase.title}
+                  </h2>
+                  <p className="mt-2 line-clamp-2 text-xs leading-5 text-slate-600 sm:text-sm sm:leading-6">
+                    {effectiveSelectedCase.summary}
+                  </p>
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
+                    <Link
+                      href={`/cases/${effectiveSelectedCase.slug}`}
+                      className="rounded-full bg-slate-950 px-4 py-2 text-xs font-semibold text-white"
+                    >
+                      完整阅读
+                    </Link>
+                    <span className="ml-auto hidden text-[11px] text-slate-400 sm:block">
+                      位置置信度 {Math.round(effectiveSelectedCase.locationConfidence * 100)}%
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </article>
+          )}
+
+          <div className="absolute bottom-3 left-3 z-20 flex gap-2 lg:hidden">
+            <button type="button" onClick={() => setLeftOpen(true)} className="rounded-full bg-slate-950 px-4 py-2.5 text-xs font-semibold text-white shadow-lg">
+              案例目录
+            </button>
+            <button type="button" onClick={() => setRightOpen(true)} className="rounded-full border border-slate-200 bg-white px-4 py-2.5 text-xs font-semibold shadow-lg">
+              筛选工具
+            </button>
+          </div>
+        </section>
+
+        <aside
+          className={`absolute inset-y-0 right-0 z-40 flex w-[min(320px,88vw)] flex-col border-l border-slate-200 bg-white transition-transform lg:static lg:w-auto lg:translate-x-0 ${
+            rightOpen ? "translate-x-0" : "translate-x-full"
+          }`}
+        >
+          <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
+            <div>
+              <p className="text-[10px] font-bold tracking-[0.14em] text-teal-700">TOOLS</p>
+              <h2 className="mt-0.5 text-base font-semibold">筛选与分析</h2>
+            </div>
+            <button type="button" onClick={() => setRightOpen(false)} className="rounded-md p-2 text-slate-500 lg:hidden">
+              ×
+            </button>
+          </div>
+
+          <div className="min-h-0 flex-1 space-y-5 overflow-y-auto p-4">
+            <section>
+              <div className="mb-2 flex items-center justify-between">
+                <h3 className="text-xs font-semibold text-slate-800">筛选条件</h3>
+                <button type="button" onClick={clearFilters} className="text-[11px] text-teal-700 hover:underline">
+                  清空{activeFilterCount > 0 ? ` ${activeFilterCount}` : ""}
+                </button>
+              </div>
+              <div className="space-y-2">
+                <label className="block">
+                  <span className="mb-1 block text-[11px] text-slate-500">应用分类</span>
+                  <select
+                    value={category}
+                    onChange={(event) => {
+                      setCategory(event.target.value as CaseCategory | "全部");
+                      setActiveCity("全部");
+                    }}
+                    className="h-10 w-full rounded-md border border-slate-200 bg-white px-2.5 text-xs outline-none focus:border-teal-500"
+                  >
+                    <option value="全部">全部分类</option>
+                    {categories.map((item) => <option key={item}>{item}</option>)}
+                  </select>
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  <label>
+                    <span className="mb-1 block text-[11px] text-slate-500">案例年份</span>
+                    <select
+                      value={year}
+                      onChange={(event) => {
+                        setYear(event.target.value);
+                        setActiveCity("全部");
+                      }}
+                      className="h-10 w-full rounded-md border border-slate-200 bg-white px-2 text-xs outline-none focus:border-teal-500"
+                    >
+                      <option value="全部">全部年份</option>
+                      {allYears.map((item) => <option key={item} value={String(item)}>{item}</option>)}
+                    </select>
+                  </label>
+                  <label>
+                    <span className="mb-1 block text-[11px] text-slate-500">证据等级</span>
+                    <select
+                      value={evidenceLevel}
+                      onChange={(event) => {
+                        setEvidenceLevel(event.target.value);
+                        setActiveCity("全部");
+                      }}
+                      className="h-10 w-full rounded-md border border-slate-200 bg-white px-2 text-xs outline-none focus:border-teal-500"
+                    >
+                      <option value="全部">全部证据</option>
+                      {evidenceLevels.map((item) => <option key={item}>{item}</option>)}
+                    </select>
+                  </label>
+                </div>
+              </div>
+            </section>
+
+            <section className="border-t border-slate-200 pt-4">
+              <h3 className="text-xs font-semibold text-slate-800">当前结果</h3>
+              <div className="mt-3 grid grid-cols-2 gap-2">
+                {[
+                  ["案例", visibleCases.length],
+                  ["城市", cityStats(visibleCases).length],
+                  ["强证据", visibleCases.filter((item) => item.evidenceLevel === "强").length],
+                  ["已选城市", activeCity === "全部" ? "全国" : activeCity.replace("市", "")],
+                ].map(([label, value]) => (
+                  <div key={label} className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                    <strong className="block text-lg">{value}</strong>
+                    <span className="mt-0.5 block text-[10px] text-slate-500">{label}</span>
+                  </div>
+                ))}
+              </div>
+            </section>
+
+            <section className="border-t border-slate-200 pt-4">
+              <h3 className="text-xs font-semibold text-slate-800">地图图层</h3>
+              <div className="mt-2 space-y-2 text-xs text-slate-600">
+                <label className="flex items-center justify-between rounded-md border border-slate-200 px-3 py-2.5">
+                  <span>案例点位</span>
+                  <input type="checkbox" checked readOnly className="accent-teal-600" />
+                </label>
+                <label className="flex items-center justify-between rounded-md border border-slate-200 px-3 py-2.5 text-slate-400">
+                  <span>行政区边界</span>
+                  <span className="text-[10px]">后续阶段</span>
+                </label>
+                <label className="flex items-center justify-between rounded-md border border-slate-200 px-3 py-2.5 text-slate-400">
+                  <span>案例热力</span>
+                  <span className="text-[10px]">后续阶段</span>
+                </label>
+              </div>
+            </section>
+
+            <section className="rounded-lg border border-teal-200 bg-teal-50 p-3">
+              <p className="text-[10px] font-bold tracking-wide text-teal-700">AI CASE SEARCH</p>
+              <h3 className="mt-1 text-sm font-semibold">用自然语言研究案例</h3>
+              <p className="mt-1 text-xs leading-5 text-slate-600">
+                后续阶段将支持“查找低空经济监管平台”等语义检索，本阶段先完成地图、目录与筛选底座。
+              </p>
+            </section>
+          </div>
+        </aside>
+      </section>
+    </main>
+  );
+}

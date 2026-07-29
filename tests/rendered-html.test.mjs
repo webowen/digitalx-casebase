@@ -61,6 +61,27 @@ test("renders the real AI parser entry in the admin workspace", async () => {
   assert.match(html, /只明确省份时，以省会城市中心作为地图展示锚点/);
 });
 
+test("renders the V1.4 map case workbench without replacing the home page", async () => {
+  const worker = await loadWorker();
+  const response = await worker.fetch(
+    new Request("http://localhost/workbench", {
+      headers: { accept: "text/html" },
+    }),
+    runtimeEnv,
+    executionContext,
+  );
+
+  assert.equal(response.status, 200);
+  const html = await response.text();
+  assert.match(html, /地图案例工作台/);
+  assert.match(html, /案例目录/);
+  assert.match(html, /按分类/);
+  assert.match(html, /按地区/);
+  assert.match(html, /按专题/);
+  assert.match(html, /筛选与分析/);
+  assert.match(html, /完整阅读/);
+});
+
 test("renders the immersive paged case reader", async () => {
   const worker = await loadWorker();
   const response = await worker.fetch(

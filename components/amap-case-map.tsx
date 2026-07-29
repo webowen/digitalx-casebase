@@ -148,11 +148,13 @@ export function AMapCaseMap({
   activeCity,
   onSelectCity,
   onClearFilters,
+  className = "h-[470px] sm:h-[540px]",
 }: {
   cities: AMapCityPoint[];
   activeCity: string;
   onSelectCity: (city: string) => void;
   onClearFilters: () => void;
+  className?: string;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MapLike | null>(null);
@@ -250,7 +252,7 @@ export function AMapCaseMap({
   }
 
   return (
-    <div className="relative h-[470px] overflow-hidden bg-[#edf3f3] sm:h-[540px]">
+    <div className={`relative overflow-hidden bg-[#edf3f3] ${className}`}>
       <div ref={containerRef} className="h-full w-full" aria-label="全国城市数智案例高德地图" />
 
       {status === "loading" && (
