@@ -40,7 +40,7 @@ const topics = [
     label: "工程建设数字化",
     match: (item: SmartCityCase) =>
       item.category === "CIM / 数字孪生" ||
-      item.aiTags.some((tag) => ["BIM", "GIS", "工程建设", "数字孪生"].includes(tag)),
+      (item.aiTags ?? []).some((tag) => ["BIM", "GIS", "工程建设", "数字孪生"].includes(tag)),
   },
   {
     label: "新产业与新场景",
@@ -63,8 +63,8 @@ function matchesKeyword(item: SmartCityCase, keyword: string) {
     item.category,
     item.summary,
     item.owner,
-    ...item.aiTags,
-    ...item.solution,
+    ...(item.aiTags ?? []),
+    ...(item.solution ?? []),
   ]
     .filter(Boolean)
     .join(" ")
@@ -375,7 +375,29 @@ export default function MapWorkbench() {
         : filteredByControls.filter((item) => item.city === activeCity),
     [activeCity, filteredByControls],
   );
-  const cities = useMemo(() => cityStats(filteredByControls), [filteredByControls]);
+  const mappableFilteredCases = useMemo(
+    () =>
+      filteredByControls.flatMap((item) => {
+        const lng = Number(item.lng);
+        const lat = Number(item.lat);
+        return Number.isFinite(lng) && Number.isFinite(lat) && Math.abs(lng) <= 180 && Math.abs(lat) <= 90
+          ? [{ ...item, lng, lat }]
+          : [];
+      }),
+    [filteredByControls],
+  );
+  const mappableVisibleCases = useMemo(
+    () =>
+      visibleCases.flatMap((item) => {
+        const lng = Number(item.lng);
+        const lat = Number(item.lat);
+        return Number.isFinite(lng) && Number.isFinite(lat) && Math.abs(lng) <= 180 && Math.abs(lat) <= 90
+          ? [{ ...item, lng, lat }]
+          : [];
+      }),
+    [visibleCases],
+  );
+  const cities = useMemo(() => cityStats(mappableFilteredCases), [mappableFilteredCases]);
   const directory = useMemo(
     () => buildDirectory(visibleCases, directoryMode),
     [directoryMode, visibleCases],
@@ -393,7 +415,7 @@ export default function MapWorkbench() {
   );
   const casePoints = useMemo<AMapCasePoint[]>(
     () =>
-      visibleCases.map((item) => ({
+      mappableVisibleCases.map((item) => ({
         id: item.id,
         title: item.title,
         city: item.city,
@@ -401,27 +423,31 @@ export default function MapWorkbench() {
         category: item.category,
         lng: item.lng,
         lat: item.lat,
-        locationLevel: item.locationLevel,
-        locationConfidence: item.locationConfidence,
+        locationLevel: ["省级", "市级", "区县级", "园区/项目点"].includes(item.locationLevel)
+          ? item.locationLevel
+          : "市级",
+        locationConfidence: Number.isFinite(Number(item.locationConfidence))
+          ? Number(item.locationConfidence)
+          : 0,
       })),
-    [visibleCases],
+    [mappableVisibleCases],
   );
   const previewMedia = effectiveSelectedCase?.media?.find((asset) => asset.included && asset.reviewed);
 
-  function selectCase(item: SmartCityCase) {
+  const selectCase = useCallback((item: SmartCityCase) => {
     setSelectedCaseSlug(item.slug);
     setActiveProvince(item.province);
     setActiveCity(item.city);
     setMapLevel("project");
     setLeftOpen(false);
-  }
+  }, []);
 
-  function selectCasePoint(id: string) {
+  const selectCasePoint = useCallback((id: string) => {
     const item = publishedCases.find((entry) => entry.id === id);
     if (item) selectCase(item);
-  }
+  }, [publishedCases, selectCase]);
 
-  function selectCity(city: string) {
+  const selectCity = useCallback((city: string) => {
     if (city === "全部") {
       setActiveCity("全部");
       setActiveProvince("全部");
@@ -434,7 +460,7 @@ export default function MapWorkbench() {
     setActiveProvince(firstCase?.province ?? "全部");
     setSelectedCaseSlug(firstCase?.slug ?? "");
     setMapLevel("city");
-  }
+  }, [filteredByControls]);
 
   function setLevel(level: MapLevel) {
     setMapLevel(level);
@@ -457,7 +483,7 @@ export default function MapWorkbench() {
     }
   }
 
-  function clearFilters() {
+  const clearFilters = useCallback(() => {
     setKeyword("");
     setCategory("全部");
     setYear("全部");
@@ -466,7 +492,7 @@ export default function MapWorkbench() {
     setActiveCity("全部");
     setSelectedCaseSlug("");
     setMapLevel("national");
-  }
+  }, []);
 
   const activeFilterCount =
     [category, year, evidenceLevel, activeProvince, activeCity].filter((item) => item !== "全部").length +
@@ -718,7 +744,7 @@ export default function MapWorkbench() {
               <div className="mt-3 grid grid-cols-2 gap-2">
                 {[
                   ["案例", visibleCases.length],
-                  ["城市", cityStats(visibleCases).length],
+                  ["城市", cityStats(mappableVisibleCases).length],
                   ["强证据", visibleCases.filter((item) => item.evidenceLevel === "强").length],
                   ["地图层级", mapLevelLabels[mapLevel]],
                 ].map(([label, value]) => (
