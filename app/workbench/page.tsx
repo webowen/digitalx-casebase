@@ -218,7 +218,7 @@ function DirectorySubBranch({
               onClick={() => onSelectCase(item)}
               className={`mb-0.5 flex w-full items-start gap-2 rounded-md px-2 py-2 text-left text-xs leading-5 transition ${
                 active
-                  ? "bg-teal-50 font-semibold text-teal-800 ring-1 ring-inset ring-teal-200"
+                  ? "brand-tree-active font-semibold ring-1 ring-inset"
                   : "text-slate-600 hover:bg-slate-50 hover:text-slate-950"
               }`}
             >
@@ -499,13 +499,22 @@ export default function MapWorkbench() {
     (keyword.trim() ? 1 : 0);
 
   return (
-    <main className="h-dvh overflow-hidden bg-slate-100 text-slate-950">
-      <header className="relative z-50 flex h-[60px] items-center gap-3 border-b border-slate-200 bg-white px-3 shadow-sm sm:px-4">
+    <main className="digitalx-brand-theme h-dvh overflow-hidden text-slate-950">
+      <header className="workbench-topbar relative z-50 flex h-[68px] items-center gap-3 px-3 sm:px-4">
         <Link href="/" className="flex shrink-0 items-center gap-2.5">
-          <span className="flex h-8 w-8 items-center justify-center rounded-md bg-slate-950 text-xs font-bold text-white">DX</span>
+          <span className="brand-logo-shell relative h-11 w-11 shrink-0 overflow-hidden rounded-full">
+            <Image
+              src="/digital-plus-innovate-logo.jpg"
+              alt="Digital + Innovate"
+              fill
+              sizes="44px"
+              priority
+              className="brand-logo-image"
+            />
+          </span>
           <span className="hidden md:block">
-            <strong className="block text-sm">地图案例工作台</strong>
-            <span className="block text-[10px] text-slate-500">DigitalX V1.4</span>
+            <strong className="brand-title block text-sm">地图案例工作台</strong>
+            <span className="brand-subtitle block text-[10px]">Digital + Innovate · V1.4</span>
           </span>
         </Link>
         <button type="button" onClick={() => setLeftOpen(true)} className="flex h-10 items-center rounded-md border border-slate-200 px-3 text-sm lg:hidden">
@@ -517,7 +526,7 @@ export default function MapWorkbench() {
             value={keyword}
             onChange={(event) => setKeyword(event.target.value)}
             placeholder="搜索项目、城市、场景或建设内容"
-            className="h-10 w-full rounded-lg border border-slate-200 bg-slate-50 px-4 pr-10 text-sm outline-none transition focus:border-teal-500 focus:bg-white focus:ring-2 focus:ring-teal-100"
+            className="brand-search h-10 w-full rounded-xl px-4 pr-10 text-sm outline-none transition"
           />
           <span className="pointer-events-none absolute right-3 top-2.5 text-slate-400">⌕</span>
         </label>
@@ -529,7 +538,7 @@ export default function MapWorkbench() {
         </Link>
       </header>
 
-      <section className="relative grid h-[calc(100dvh-60px)] lg:grid-cols-[320px_minmax(0,1fr)_296px]">
+      <section className="relative grid h-[calc(100dvh-68px)] lg:grid-cols-[320px_minmax(0,1fr)_296px]">
         {(leftOpen || rightOpen) && (
           <button
             type="button"
@@ -542,10 +551,10 @@ export default function MapWorkbench() {
           />
         )}
 
-        <aside className={`absolute inset-y-0 left-0 z-40 flex w-[min(340px,88vw)] flex-col border-r border-slate-200 bg-white transition-transform lg:static lg:w-auto lg:translate-x-0 ${leftOpen ? "translate-x-0" : "-translate-x-full"}`}>
+        <aside className={`workbench-panel absolute inset-y-0 left-0 z-40 flex w-[min(340px,88vw)] flex-col transition-transform lg:static lg:w-auto lg:translate-x-0 ${leftOpen ? "translate-x-0" : "-translate-x-full"}`}>
           <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
             <div>
-              <p className="text-[10px] font-bold tracking-[0.14em] text-teal-700">CASE DIRECTORY</p>
+              <p className="brand-eyebrow text-[10px] font-bold tracking-[0.14em]">CASE DIRECTORY</p>
               <h1 className="mt-0.5 text-base font-semibold">案例目录</h1>
             </div>
             <button type="button" onClick={() => setLeftOpen(false)} className="rounded-md p-2 text-slate-500 lg:hidden">×</button>
@@ -560,7 +569,7 @@ export default function MapWorkbench() {
                 key={mode}
                 type="button"
                 onClick={() => setDirectoryMode(mode)}
-                className={`rounded-md px-2 py-2 text-xs font-medium ${directoryMode === mode ? "bg-slate-950 text-white" : "text-slate-500 hover:bg-slate-100"}`}
+                className={`rounded-md px-2 py-2 text-xs font-medium ${directoryMode === mode ? "brand-gradient-button text-white" : "text-slate-500 hover:bg-sky-50"}`}
               >
                 {label}
               </button>
@@ -569,7 +578,7 @@ export default function MapWorkbench() {
           <div className="flex items-center justify-between px-4 py-2 text-[11px] text-slate-500">
             <span>{visibleCases.length} 个公开案例</span>
             {activeCity !== "全部" && (
-              <button type="button" onClick={() => selectCity("全部")} className="text-teal-700 hover:underline">返回全国</button>
+              <button type="button" onClick={() => selectCity("全部")} className="brand-link hover:underline">返回全国</button>
             )}
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto">
@@ -581,7 +590,7 @@ export default function MapWorkbench() {
           </div>
         </aside>
 
-        <section className="relative min-w-0 overflow-hidden bg-[#e8eeef]">
+        <section className="workbench-map relative min-w-0 overflow-hidden">
           <AMapCaseMap
             cities={cities}
             casePoints={casePoints}
@@ -607,7 +616,7 @@ export default function MapWorkbench() {
                     disabled={disabled}
                     onClick={() => setLevel(level)}
                     className={`rounded px-2 py-1 text-[11px] font-medium ${
-                      mapLevel === level ? "bg-slate-950 text-white" : "text-slate-600 hover:bg-slate-100 disabled:text-slate-300"
+                      mapLevel === level ? "brand-gradient-button text-white" : "text-slate-600 hover:bg-sky-50 disabled:text-slate-300"
                     }`}
                   >
                     {mapLevelLabels[level]}
@@ -623,9 +632,9 @@ export default function MapWorkbench() {
           </div>
 
           {effectiveSelectedCase && (
-            <article className="absolute inset-x-3 bottom-3 z-20 mx-auto max-w-3xl overflow-hidden rounded-xl border border-slate-200 bg-white/97 shadow-xl backdrop-blur sm:bottom-5">
+            <article className="brand-preview-card absolute inset-x-3 bottom-3 z-20 mx-auto max-w-3xl overflow-hidden rounded-2xl backdrop-blur sm:bottom-5">
               <div className="grid sm:grid-cols-[180px_minmax(0,1fr)]">
-                <div className="relative hidden min-h-52 overflow-hidden bg-gradient-to-br from-slate-900 via-teal-900 to-teal-600 sm:block">
+                <div className="brand-preview-visual relative hidden min-h-52 overflow-hidden sm:block">
                   {previewMedia ? (
                     <Image
                       src={previewMedia.url}
@@ -637,7 +646,7 @@ export default function MapWorkbench() {
                     />
                   ) : (
                     <div className="absolute inset-0 flex flex-col justify-end p-4 text-white">
-                      <span className="text-[10px] font-bold tracking-[0.16em] text-teal-200">DIGITALX CASE</span>
+                      <span className="text-[10px] font-bold tracking-[0.16em] text-cyan-100">DIGITAL + CASE</span>
                       <strong className="mt-2 text-sm leading-5">{effectiveSelectedCase.category}</strong>
                       <span className="mt-1 text-[11px] text-white/70">暂无已复核案例图片</span>
                     </div>
@@ -645,7 +654,7 @@ export default function MapWorkbench() {
                 </div>
                 <div className="min-w-0 p-4 sm:p-5">
                   <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
-                    <span className="font-medium text-teal-700">{effectiveSelectedCase.category}</span>
+                    <span className="brand-link font-medium">{effectiveSelectedCase.category}</span>
                     <span>·</span>
                     <span>{effectiveSelectedCase.province} {effectiveSelectedCase.city} {effectiveSelectedCase.district ?? ""}</span>
                     <span>·</span>
@@ -669,7 +678,7 @@ export default function MapWorkbench() {
                     ))}
                   </div>
                   <div className="mt-3 flex flex-wrap items-center gap-2">
-                    <Link href={`/cases/${effectiveSelectedCase.slug}`} className="rounded-full bg-slate-950 px-4 py-2 text-xs font-semibold text-white">
+                    <Link href={`/cases/${effectiveSelectedCase.slug}`} className="brand-gradient-button rounded-full px-4 py-2 text-xs font-semibold text-white">
                       完整阅读
                     </Link>
                     <span className="text-[10px] text-slate-400">
@@ -682,10 +691,10 @@ export default function MapWorkbench() {
           )}
         </section>
 
-        <aside className={`absolute inset-y-0 right-0 z-40 flex w-[min(320px,88vw)] flex-col border-l border-slate-200 bg-white transition-transform lg:static lg:w-auto lg:translate-x-0 ${rightOpen ? "translate-x-0" : "translate-x-full"}`}>
+        <aside className={`workbench-panel workbench-panel-right absolute inset-y-0 right-0 z-40 flex w-[min(320px,88vw)] flex-col transition-transform lg:static lg:w-auto lg:translate-x-0 ${rightOpen ? "translate-x-0" : "translate-x-full"}`}>
           <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
             <div>
-              <p className="text-[10px] font-bold tracking-[0.14em] text-teal-700">TOOLS</p>
+              <p className="brand-eyebrow text-[10px] font-bold tracking-[0.14em]">TOOLS</p>
               <h2 className="mt-0.5 text-base font-semibold">筛选与分析</h2>
             </div>
             <button type="button" onClick={() => setRightOpen(false)} className="rounded-md p-2 text-slate-500 lg:hidden">×</button>
@@ -694,7 +703,7 @@ export default function MapWorkbench() {
             <section>
               <div className="mb-2 flex items-center justify-between">
                 <h3 className="text-xs font-semibold text-slate-800">筛选条件</h3>
-                <button type="button" onClick={clearFilters} className="text-[11px] text-teal-700 hover:underline">清空{activeFilterCount > 0 ? ` ${activeFilterCount}` : ""}</button>
+                <button type="button" onClick={clearFilters} className="brand-link text-[11px] hover:underline">清空{activeFilterCount > 0 ? ` ${activeFilterCount}` : ""}</button>
               </div>
               <div className="space-y-2">
                 <label className="block">
@@ -748,7 +757,7 @@ export default function MapWorkbench() {
                   ["强证据", visibleCases.filter((item) => item.evidenceLevel === "强").length],
                   ["地图层级", mapLevelLabels[mapLevel]],
                 ].map(([label, value]) => (
-                  <div key={label} className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                  <div key={label} className="brand-stat-card rounded-xl p-3">
                     <strong className="block text-lg">{value}</strong>
                     <span className="mt-0.5 block text-[10px] text-slate-500">{label}</span>
                   </div>
@@ -766,8 +775,8 @@ export default function MapWorkbench() {
                 </div>
               </div>
             </section>
-            <section className="rounded-lg border border-teal-200 bg-teal-50 p-3">
-              <p className="text-[10px] font-bold tracking-wide text-teal-700">SHAREABLE VIEW</p>
+            <section className="brand-soft-card rounded-xl p-3">
+              <p className="brand-eyebrow text-[10px] font-bold tracking-wide">SHAREABLE VIEW</p>
               <h3 className="mt-1 text-sm font-semibold">当前工作台状态可分享</h3>
               <p className="mt-1 text-xs leading-5 text-slate-600">
                 搜索、筛选、目录方式、地图层级与所选案例均写入 URL；刷新、前进后退或复制网址后可以恢复。
