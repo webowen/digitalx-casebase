@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 const developmentPreviewMeta =
@@ -84,6 +85,17 @@ test("renders the V1.4 map case workbench without replacing the home page", asyn
   assert.match(html, /当前工作台状态可分享/);
   assert.match(html, /省域/);
   assert.match(html, /项目阶段/);
+});
+
+test("uses only documented MarkerCluster render callback fields", async () => {
+  const source = await readFile(
+    new URL("../components/amap-case-map.tsx", import.meta.url),
+    "utf8",
+  );
+
+  assert.doesNotMatch(source, /context\.data/);
+  assert.match(source, /context\.marker/);
+  assert.match(source, /context\.count/);
 });
 
 test("renders the immersive paged case reader", async () => {
