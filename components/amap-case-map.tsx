@@ -210,9 +210,16 @@ export function AMapCaseMap({
   const mapRef = useRef<MapLike | null>(null);
   const clusterRef = useRef<ClusterLike | null>(null);
   const amapRef = useRef<AMapNamespace | null>(null);
+  const onSelectCityRef = useRef(onSelectCity);
+  const onSelectCaseRef = useRef(onSelectCase);
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
   const [errorMessage, setErrorMessage] = useState("");
   const [retry, setRetry] = useState(0);
+
+  useEffect(() => {
+    onSelectCityRef.current = onSelectCity;
+    onSelectCaseRef.current = onSelectCase;
+  }, [onSelectCase, onSelectCity]);
 
   useEffect(() => {
     let cancelled = false;
@@ -220,20 +227,26 @@ export function AMapCaseMap({
     loadAMap()
       .then((AMap) => {
         if (cancelled || !containerRef.current) return;
-        amapRef.current = AMap;
-        const map = new AMap.Map(containerRef.current, {
-          center: [104.1954, 35.8617],
-          zoom: 4.6,
-          zooms: [3, 18],
-          mapStyle: "amap://styles/whitesmoke",
-          viewMode: "2D",
-          resizeEnable: true,
-          showLabel: true,
-        });
-        map.addControl(new AMap.Scale());
-        map.addControl(new AMap.ToolBar({ position: "RB" }));
-        mapRef.current = map;
-        setStatus("ready");
+        try {
+          amapRef.current = AMap;
+          const map = new AMap.Map(containerRef.current, {
+            center: [104.1954, 35.8617],
+            zoom: 4.6,
+            zooms: [3, 18],
+            mapStyle: "amap://styles/whitesmoke",
+            viewMode: "2D",
+            resizeEnable: true,
+            showLabel: true,
+          });
+          map.addControl(new AMap.Scale());
+          map.addControl(new AMap.ToolBar({ position: "RB" }));
+          mapRef.current = map;
+          setStatus("ready");
+        } catch (error) {
+          amapRef.current = null;
+          setStatus("error");
+          setErrorMessage(error instanceof Error ? error.message : "地图初始化失败");
+        }
       })
       .catch((error: unknown) => {
         if (cancelled) return;
@@ -255,6 +268,7 @@ export function AMapCaseMap({
     const map = mapRef.current;
     const AMap = amapRef.current;
     if (status !== "ready" || !map || !AMap) return;
+    let fitViewTimer: number | undefined;
 
     clusterRef.current?.setMap(null);
     clusterRef.current = null;
@@ -276,38 +290,51 @@ export function AMapCaseMap({
             active: city.city === activeCity,
           }));
 
-    const cluster = new AMap.MarkerCluster(map, points, {
-      gridSize: displayMode === "case" ? 52 : 68,
-      maxZoom: displayMode === "case" ? 15 : 10,
-      averageCenter: true,
-      zoomOnClick: true,
-      renderMarker: (context: ClusterRenderContext) =>
-        createPointMarker(AMap, context, onSelectCity, onSelectCase),
-      renderClusterMarker: (context: ClusterRenderContext) => createClusterMarker(AMap, context),
-    });
-    clusterRef.current = cluster;
+    try {
+      const cluster = new AMap.MarkerCluster(map, points, {
+        gridSize: displayMode === "case" ? 52 : 68,
+        maxZoom: displayMode === "case" ? 15 : 10,
+        averageCenter: true,
+        zoomOnClick: true,
+        renderMarker: (context: ClusterRenderContext) =>
+          createPointMarker(
+            AMap,
+            context,
+            (city) => onSelectCityRef.current(city),
+            (id) => onSelectCaseRef.current(id),
+          ),
+        renderClusterMarker: (context: ClusterRenderContext) => createClusterMarker(AMap, context),
+      });
+      clusterRef.current = cluster;
 
-    if (displayMode === "case") {
-      const selected = casePoints.find((point) => point.id === activeCaseId);
-      if (selected) {
-        map.setZoomAndCenter(locationZoom[selected.locationLevel], [selected.lng, selected.lat], false, 350);
-      } else if (casePoints.length === 1) {
-        map.setZoomAndCenter(locationZoom[casePoints[0].locationLevel], [casePoints[0].lng, casePoints[0].lat], false, 350);
+      if (displayMode === "case") {
+        const selected = casePoints.find((point) => point.id === activeCaseId);
+        if (selected) {
+          map.setZoomAndCenter(locationZoom[selected.locationLevel], [selected.lng, selected.lat], false, 350);
+        } else if (casePoints.length === 1) {
+          map.setZoomAndCenter(locationZoom[casePoints[0].locationLevel], [casePoints[0].lng, casePoints[0].lat], false, 350);
+        } else {
+          fitViewTimer = window.setTimeout(() => map.setFitView(), 80);
+        }
       } else {
-        window.setTimeout(() => map.setFitView(), 80);
+        const selected = cities.find((city) => city.city === activeCity);
+        if (selected) map.setZoomAndCenter(8, [selected.lng, selected.lat], false, 350);
+        else if (cities.length === 1) map.setZoomAndCenter(7, [cities[0].lng, cities[0].lat], false, 350);
+        else fitViewTimer = window.setTimeout(() => map.setFitView(), 80);
       }
-    } else {
-      const selected = cities.find((city) => city.city === activeCity);
-      if (selected) map.setZoomAndCenter(8, [selected.lng, selected.lat], false, 350);
-      else if (cities.length === 1) map.setZoomAndCenter(7, [cities[0].lng, cities[0].lat], false, 350);
-      else window.setTimeout(() => map.setFitView(), 80);
-    }
 
-    return () => {
-      cluster.setMap(null);
-      if (clusterRef.current === cluster) clusterRef.current = null;
-    };
-  }, [activeCaseId, activeCity, casePoints, cities, displayMode, onSelectCase, onSelectCity, status]);
+      return () => {
+        if (fitViewTimer !== undefined) window.clearTimeout(fitViewTimer);
+        cluster.setMap(null);
+        if (clusterRef.current === cluster) clusterRef.current = null;
+      };
+    } catch (error) {
+      window.setTimeout(() => {
+        setStatus("error");
+        setErrorMessage(error instanceof Error ? error.message : "地图点位加载失败");
+      }, 0);
+    }
+  }, [activeCaseId, activeCity, casePoints, cities, displayMode, status]);
 
   function retryLoad() {
     document.querySelector("script[data-digitalx-amap]")?.remove();
