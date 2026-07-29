@@ -37,15 +37,25 @@ type CasePointData = AMapCasePoint & {
 
 type AMapPointData = CityPointData | CasePointData;
 
+type LngLatLike = {
+  getLng?(): number;
+  getLat?(): number;
+  toArray?(): [number, number];
+};
+
 type MarkerLike = {
+  getPosition?(): LngLatLike | undefined;
   setContent(content: HTMLElement | string): void;
   setOffset(offset: unknown): void;
+};
+
+type PointRenderContext = {
+  marker: MarkerLike;
 };
 
 type ClusterRenderContext = {
   marker: MarkerLike;
   count: number;
-  data: AMapPointData[];
 };
 
 type ClusterLike = {
@@ -133,13 +143,38 @@ function cityLabel(city: string) {
   return city.endsWith("市") ? city.slice(0, -1) : city;
 }
 
+function findMarkerPoint(marker: MarkerLike, points: AMapPointData[]) {
+  const position = marker.getPosition?.();
+  const coordinates = position?.toArray?.();
+  const lng = coordinates?.[0] ?? position?.getLng?.();
+  const lat = coordinates?.[1] ?? position?.getLat?.();
+  if (!Number.isFinite(lng) || !Number.isFinite(lat)) return undefined;
+
+  return points.find(
+    (point) =>
+      Math.abs(point.lnglat[0] - Number(lng)) < 0.000001 &&
+      Math.abs(point.lnglat[1] - Number(lat)) < 0.000001,
+  );
+}
+
 function createPointMarker(
   AMap: AMapNamespace,
-  context: ClusterRenderContext,
+  context: PointRenderContext,
+  points: AMapPointData[],
   onSelectCity: (city: string) => void,
   onSelectCase: (id: string) => void,
 ) {
-  const point = context.data[0];
+  const point = findMarkerPoint(context.marker, points);
+  if (!point) {
+    const marker = document.createElement("div");
+    marker.className = "amap-case-marker";
+    marker.innerHTML = "<span></span>";
+    marker.setAttribute("aria-label", "地图案例点位");
+    context.marker.setContent(marker);
+    context.marker.setOffset(new AMap.Pixel(-14, -34));
+    return;
+  }
+
   if (point.kind === "city") {
     const size = Math.max(46, Math.min(72, 40 + point.count * 10));
     const marker = document.createElement("button");
@@ -167,13 +202,17 @@ function createPointMarker(
   context.marker.setOffset(new AMap.Pixel(-14, -34));
 }
 
-function createClusterMarker(AMap: AMapNamespace, context: ClusterRenderContext) {
+function createClusterMarker(
+  AMap: AMapNamespace,
+  context: ClusterRenderContext,
+  kind: "city" | "case",
+) {
   const size = Math.max(50, Math.min(78, 48 + Math.log2(context.count + 1) * 9));
   const marker = document.createElement("div");
   marker.className = "amap-cluster-marker";
   marker.style.width = `${size}px`;
   marker.style.height = `${size}px`;
-  marker.innerHTML = `<strong>${context.count}</strong><span>${context.data[0]?.kind === "case" ? "案例" : "城市"}</span>`;
+  marker.innerHTML = `<strong>${context.count}</strong><span>${kind === "case" ? "案例" : "城市"}</span>`;
   context.marker.setContent(marker);
   context.marker.setOffset(new AMap.Pixel(-size / 2, -size / 2));
 }
@@ -296,14 +335,16 @@ export function AMapCaseMap({
         maxZoom: displayMode === "case" ? 15 : 10,
         averageCenter: true,
         zoomOnClick: true,
-        renderMarker: (context: ClusterRenderContext) =>
+        renderMarker: (context: PointRenderContext) =>
           createPointMarker(
             AMap,
             context,
+            points,
             (city) => onSelectCityRef.current(city),
             (id) => onSelectCaseRef.current(id),
           ),
-        renderClusterMarker: (context: ClusterRenderContext) => createClusterMarker(AMap, context),
+        renderClusterMarker: (context: ClusterRenderContext) =>
+          createClusterMarker(AMap, context, displayMode === "case" ? "case" : "city"),
       });
       clusterRef.current = cluster;
 
