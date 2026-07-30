@@ -359,6 +359,112 @@ html {
   box-shadow: 0 0 0 4px rgba(22, 215, 199, 0.3), 0 8px 24px rgba(23, 69, 220, 0.32);
 }
 
+.case-poi-card {
+  position: absolute;
+  inset: auto 16px 18px;
+  z-index: 20;
+  display: flex;
+  width: min(620px, calc(100% - 32px));
+  align-items: center;
+  gap: 13px;
+  margin: 0 auto;
+  border: 1px solid rgba(8, 127, 232, 0.24);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.95);
+  padding: 13px 14px;
+  box-shadow: 0 14px 36px rgba(6, 45, 104, 0.16);
+  backdrop-filter: blur(14px);
+}
+
+.case-poi-symbol {
+  position: relative;
+  display: grid;
+  width: 36px;
+  height: 36px;
+  flex: none;
+  place-items: center;
+  border-radius: 50% 50% 50% 10%;
+  background: var(--brand-gradient);
+  box-shadow: 0 7px 18px rgba(23, 69, 220, 0.24);
+  transform: rotate(-45deg);
+}
+
+.case-poi-symbol span {
+  width: 12px;
+  height: 12px;
+  border: 3px solid #ffffff;
+  border-radius: 50%;
+  transform: rotate(45deg);
+}
+
+.case-poi-card p {
+  color: var(--brand-blue);
+  font-size: 9px;
+  font-weight: 750;
+  letter-spacing: 0.06em;
+}
+
+.case-poi-card h2 {
+  margin-top: 3px;
+  overflow: hidden;
+  color: #132b52;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.45;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.case-poi-card h2 em {
+  display: inline-flex;
+  margin-left: 8px;
+  border: 1px solid #8ce6de;
+  border-radius: 999px;
+  background: #e9fffb;
+  padding: 2px 7px;
+  color: #087d85;
+  font-size: 9px;
+  font-style: normal;
+  font-weight: 750;
+  letter-spacing: 0.04em;
+  vertical-align: middle;
+}
+
+.case-poi-card div + div > span {
+  display: block;
+  margin-top: 3px;
+  color: #718096;
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.case-poi-card > button {
+  flex: none;
+  border-radius: 999px;
+  background: var(--brand-gradient);
+  padding: 8px 13px;
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 700;
+  box-shadow: 0 6px 14px rgba(23, 69, 220, 0.18);
+}
+
+@media (max-width: 640px) {
+  .case-poi-card {
+    inset: auto 10px 10px;
+    width: calc(100% - 20px);
+    align-items: flex-start;
+  }
+
+  .case-poi-card div + div > span {
+    display: none;
+  }
+
+  .case-poi-card > button {
+    align-self: center;
+  }
+}
+
 /* V1.5.0-alpha.2.2 in-place case document */
 
 .case-document-layer {
@@ -519,6 +625,17 @@ html {
   margin-right: 18px;
   color: #b9c5d2;
   content: "•";
+}
+
+.case-document-kicker em {
+  border: 1px solid #8ce6de;
+  border-radius: 999px;
+  background: #e9fffb;
+  padding: 2px 8px;
+  color: #087d85;
+  font-size: 9px;
+  font-style: normal;
+  letter-spacing: 0.06em;
 }
 
 .case-document-cover h1 {

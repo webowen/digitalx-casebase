@@ -1,6 +1,7 @@
 import type { SmartCityCase } from "./case-model";
+import { migrateBuiltInCases } from "./benchmark-cases";
 
-export const smartCityCases: SmartCityCase[] = [
+const legacySmartCityCases: SmartCityCase[] = [
   {
     id: "case-001",
     slug: "shenzhen-low-altitude-airspace-service",
@@ -545,6 +546,8 @@ export const smartCityCases: SmartCityCase[] = [
     sourceNote: "演示数据：后续补充调用场景清单。",
   },
 ];
+
+export const smartCityCases = migrateBuiltInCases(legacySmartCityCases);
 
 export function getPublishedCases() {
   return smartCityCases.filter((item) => item.status === "已发布");

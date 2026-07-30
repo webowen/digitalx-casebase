@@ -173,6 +173,18 @@ export type CaseContentModel = {
   quality: CaseQualityReview;
 };
 
+export type CaseContentMigration = {
+  protocolVersion: "1.0";
+  status: "legacy" | "migrated" | "benchmark_draft" | "approved";
+  benchmark: boolean;
+  migratedAt: string;
+  migratedFrom: "v1.4";
+  reviewStatus: "pending" | "in_review" | "approved";
+  sourceCount: number;
+  substantiveSectionCount: number;
+  notes: string;
+};
+
 export type CasePipelineStageId =
   | "input_validation"
   | "source_extraction"
@@ -335,6 +347,7 @@ export type SmartCityCase = {
   article?: CaseArticle;
   media?: CaseMediaAsset[];
   contentModel?: CaseContentModel;
+  contentMigration?: CaseContentMigration;
   parsePipeline?: CasePipelineRun;
   importedAt?: string;
   updatedAt?: string;

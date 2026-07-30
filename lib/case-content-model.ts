@@ -223,6 +223,18 @@ export function evaluateCaseQuality(
   const warnings: string[] = [];
   const identity = normalizeIdentity(item.identity, item.title);
   const article = normalizeArticle(item.article, item);
+  const nativeCharacterCount = contentModel.editorialSections
+    .flatMap((section) => [
+      section.summary,
+      ...section.paragraphs,
+      ...section.points,
+    ])
+    .join("")
+    .length;
+  const contentCharacterCount = Math.max(
+    articleCharacterCount(article),
+    nativeCharacterCount,
+  );
 
   breakdown.identity =
     identity.canonicalTitle === item.title.trim() && !identity.needsReview
@@ -247,7 +259,7 @@ export function evaluateCaseQuality(
   breakdown.completeness = Math.min(
     15,
     substantiveSectionCount * 2 +
-      (articleCharacterCount(article) >= 1_200 ? 3 : 0),
+      (contentCharacterCount >= 1_200 ? 3 : 0),
   );
   breakdown.problemSolution = Math.min(
     15,
@@ -308,7 +320,7 @@ export function evaluateCaseQuality(
     blockingIssues.push("案例尚未完成最终人工复核。");
   }
   if (contentModel.sources.length < 2) warnings.push("来源少于2个，建议继续补充可追溯资料。");
-  if (articleCharacterCount(article) < 1_200) warnings.push("正文不足1200字，建议补充研究资料。");
+  if (contentCharacterCount < 1_200) warnings.push("正文不足1200字，建议补充研究资料。");
   if (substantiveSectionCount < 7) {
     warnings.push(
       `七章正文中仅有${substantiveSectionCount}章获得事实陈述支撑，其他章节需要补充证据。`,

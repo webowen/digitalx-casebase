@@ -126,21 +126,29 @@ test("renders the V1.4 map case workbench as the default home page", async () =>
   assert.match(html, /省域/);
 });
 
-test("selecting a directory case does not silently narrow the directory to one city", async () => {
+test("directory selection focuses the map before a POI opens the document", async () => {
   const source = await readFile(
     new URL("../app/workbench/page.tsx", import.meta.url),
     "utf8",
   );
-  const selectCaseBody = source.match(
-    /const selectCase = useCallback\(\(item: SmartCityCase\) => \{([\s\S]*?)\n  \}, \[\]\);/,
+  const focusCaseBody = source.match(
+    /const focusCaseOnMap = useCallback\(\(item: SmartCityCase\) => \{([\s\S]*?)\n  \}, \[\]\);/,
+  )?.[1];
+  const poiBody = source.match(
+    /const selectCasePoint = useCallback\(\(id: string\) => \{([\s\S]*?)\n  \}, \[publishedCases\]\);/,
   )?.[1];
 
-  assert.ok(selectCaseBody);
-  assert.match(selectCaseBody, /setSelectedCaseSlug\(item\.slug\)/);
-  assert.match(selectCaseBody, /setDocumentOpen\(true\)/);
-  assert.match(selectCaseBody, /setMapLevel\("project"\)/);
-  assert.doesNotMatch(selectCaseBody, /setActiveProvince/);
-  assert.doesNotMatch(selectCaseBody, /setActiveCity/);
+  assert.ok(focusCaseBody);
+  assert.ok(poiBody);
+  assert.match(focusCaseBody, /setSelectedCaseSlug\(item\.slug\)/);
+  assert.match(focusCaseBody, /setDocumentOpen\(false\)/);
+  assert.match(focusCaseBody, /setMapLevel\("project"\)/);
+  assert.doesNotMatch(focusCaseBody, /setActiveProvince/);
+  assert.doesNotMatch(focusCaseBody, /setActiveCity/);
+  assert.match(poiBody, /setDocumentOpen\(true\)/);
+  assert.match(source, /className="case-poi-card"/);
+  assert.match(source, /地图已定位到项目点位/);
+  assert.match(source, /查看案例/);
   assert.match(source, /view", "document"/);
   assert.match(source, /aria-label="关闭案例文档遮罩"/);
   assert.match(source, /<CaseDocument item=\{activeSelectedCase\}/);

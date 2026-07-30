@@ -13,6 +13,7 @@ import {
   type SmartCityCase,
 } from "@/lib/case-model";
 import { cityStats } from "@/lib/case-analytics";
+import { getMigrationSummary } from "@/lib/benchmark-cases";
 import { getLocalCases } from "@/lib/local-cases";
 import { getPublishedCases } from "@/lib/mock-cases";
 
@@ -354,6 +355,10 @@ export default function MapWorkbench() {
     () => [...localCases.filter((item) => item.status === "已发布"), ...staticPublishedCases],
     [localCases],
   );
+  const migrationSummary = useMemo(
+    () => getMigrationSummary(publishedCases),
+    [publishedCases],
+  );
   const allYears = useMemo(
     () => Array.from(new Set(publishedCases.map((item) => item.year))).sort((a, b) => b - a),
     [publishedCases],
@@ -442,17 +447,24 @@ export default function MapWorkbench() {
       })),
     [mappableVisibleCases],
   );
-  const selectCase = useCallback((item: SmartCityCase) => {
+  const focusCaseOnMap = useCallback((item: SmartCityCase) => {
     setSelectedCaseSlug(item.slug);
-    setDocumentOpen(true);
+    setDocumentOpen(false);
     setMapLevel("project");
     setLeftOpen(false);
   }, []);
 
   const selectCasePoint = useCallback((id: string) => {
     const item = publishedCases.find((entry) => entry.id === id);
-    if (item) selectCase(item);
-  }, [publishedCases, selectCase]);
+    if (!item) return;
+    setSelectedCaseSlug(item.slug);
+    setDocumentOpen(true);
+    setMapLevel("project");
+  }, [publishedCases]);
+
+  const openSelectedDocument = useCallback(() => {
+    if (activeSelectedCase) setDocumentOpen(true);
+  }, [activeSelectedCase]);
 
   const selectCity = useCallback((city: string) => {
     if (city === "全部") {
@@ -491,7 +503,7 @@ export default function MapWorkbench() {
       setSelectedCaseSlug("");
       setDocumentOpen(false);
     } else if (level === "project" && effectiveSelectedCase) {
-      selectCase(effectiveSelectedCase);
+      focusCaseOnMap(effectiveSelectedCase);
     }
   }
 
@@ -614,7 +626,7 @@ export default function MapWorkbench() {
             <DirectoryTree
               groups={directory}
               selectedCaseId={activeSelectedCase?.id}
-              onSelectCase={selectCase}
+              onSelectCase={focusCaseOnMap}
             />
           </div>
         </aside>
@@ -659,6 +671,30 @@ export default function MapWorkbench() {
             {activeProvince === "全部" ? "全国" : activeProvince}
             {activeCity !== "全部" ? ` / ${activeCity}` : ""} · {visibleCases.length} 案例
           </div>
+
+          {activeSelectedCase && !documentOpen && (
+            <article className="case-poi-card">
+              <div className="case-poi-symbol" aria-hidden="true">
+                <span />
+              </div>
+              <div className="min-w-0 flex-1">
+                <p>
+                  {activeSelectedCase.category} · {activeSelectedCase.province}
+                  {activeSelectedCase.city}
+                </p>
+                <h2>
+                  {activeSelectedCase.title}
+                  {activeSelectedCase.contentMigration?.benchmark && (
+                    <em>标杆样稿</em>
+                  )}
+                </h2>
+                <span>地图已定位到项目点位；点击地图标记或按钮查看完整案例。</span>
+              </div>
+              <button type="button" onClick={openSelectedDocument}>
+                查看案例
+              </button>
+            </article>
+          )}
 
           {activeSelectedCase && documentOpen && (
             <div className="case-document-layer">
@@ -746,6 +782,37 @@ export default function MapWorkbench() {
                     <span className="mt-0.5 block text-[10px] text-slate-500">{label}</span>
                   </div>
                 ))}
+              </div>
+            </section>
+            <section className="border-t border-slate-200 pt-4">
+              <div className="flex items-center justify-between">
+                <h3 className="text-xs font-semibold text-slate-800">内容迁移</h3>
+                <span className="brand-eyebrow text-[10px] font-bold">
+                  V1.5 PROTOCOL
+                </span>
+              </div>
+              <div className="brand-soft-card mt-2 rounded-xl p-3">
+                <div className="flex items-end justify-between">
+                  <strong className="text-xl text-slate-900">
+                    {migrationSummary.migrated}/{migrationSummary.total}
+                  </strong>
+                  <span className="text-[10px] text-slate-500">已迁移案例</span>
+                </div>
+                <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-200">
+                  <span
+                    className="brand-gradient-button block h-full rounded-full"
+                    style={{
+                      width: `${Math.round(
+                        (migrationSummary.migrated /
+                          Math.max(1, migrationSummary.total)) *
+                          100,
+                      )}%`,
+                    }}
+                  />
+                </div>
+                <p className="mt-2 text-[10px] leading-4 text-slate-600">
+                  其中 {migrationSummary.benchmarkDrafts} 个标杆样稿已采用原生七部分内容协议，等待内容负责人终审。
+                </p>
               </div>
             </section>
             <section className="border-t border-slate-200 pt-4">
