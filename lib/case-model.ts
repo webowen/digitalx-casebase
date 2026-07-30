@@ -24,6 +24,190 @@ export type CaseResearchSource = {
   url: string;
 };
 
+export type CaseContentLevel = "quick" | "standard" | "deep";
+
+export type CaseClaimType =
+  | "verified_fact"
+  | "source_claim"
+  | "ai_inference"
+  | "editorial_judgment"
+  | "unresolved";
+
+export type CaseEvidenceStatus =
+  | "verified"
+  | "source_claimed"
+  | "derived"
+  | "qualitative"
+  | "unknown";
+
+export type CaseContentSectionId =
+  | "project_overview"
+  | "why_build"
+  | "how_build"
+  | "core_scenarios"
+  | "implementation_operation"
+  | "innovation_outcomes"
+  | "lessons_boundaries";
+
+export type CaseContentSource = {
+  id: string;
+  title: string;
+  url: string;
+  publisher: string;
+  publishedAt: string;
+  sourceType: SmartCityCase["sourceType"] | "原始资料" | "官方网站" | "其他";
+  excerpt: string;
+  evidenceLevel: EvidenceLevel;
+  reviewed: boolean;
+};
+
+export type CaseContentClaim = {
+  id: string;
+  statement: string;
+  type: CaseClaimType;
+  evidenceStatus: CaseEvidenceStatus;
+  sourceIds: string[];
+  sectionId: CaseContentSectionId;
+  confidence: number;
+  conflict: string;
+  reviewed: boolean;
+};
+
+export type CaseOrganizationRole =
+  | "建设/牵头"
+  | "实施"
+  | "运营"
+  | "使用"
+  | "数据提供"
+  | "技术支持";
+
+export type CaseOrganization = {
+  name: string;
+  role: CaseOrganizationRole;
+  sourceIds: string[];
+  reviewed: boolean;
+};
+
+export type CaseDataAsset = {
+  name: string;
+  category: string;
+  source: string;
+  usage: string;
+  sensitivity: string;
+  sourceIds: string[];
+};
+
+export type CaseScenario = {
+  id: string;
+  name: string;
+  problem: string;
+  dataInputs: string[];
+  systemActions: string[];
+  businessActions: string[];
+  result: string;
+  sourceIds: string[];
+};
+
+export type CaseMetric = {
+  name: string;
+  value: string;
+  unit: string;
+  period: string;
+  baseline: string;
+  evidenceStatus: CaseEvidenceStatus;
+  sourceIds: string[];
+  reviewed: boolean;
+};
+
+export type CaseMilestone = {
+  date: string;
+  event: string;
+  sourceIds: string[];
+};
+
+export type CaseContentSection = {
+  id: CaseContentSectionId;
+  title: string;
+  summary: string;
+  paragraphs: string[];
+  points: string[];
+  claimIds: string[];
+  mediaIds: string[];
+};
+
+export type CaseQualityBreakdown = {
+  identity: number;
+  sourcesAndEvidence: number;
+  completeness: number;
+  problemSolution: number;
+  dataAndBusiness: number;
+  metrics: number;
+  media: number;
+  boundaries: number;
+};
+
+export type CaseQualityReview = {
+  score: number;
+  breakdown: CaseQualityBreakdown;
+  blockingIssues: string[];
+  warnings: string[];
+  publishable: boolean;
+  reviewedAt: string;
+};
+
+export type CaseContentModel = {
+  schemaVersion: "1.0";
+  generationMode?: "compatibility" | "native";
+  contentLevel: CaseContentLevel;
+  editorialSections: CaseContentSection[];
+  sources: CaseContentSource[];
+  claims: CaseContentClaim[];
+  organizations: CaseOrganization[];
+  dataAssets: CaseDataAsset[];
+  scenarios: CaseScenario[];
+  metrics: CaseMetric[];
+  milestones: CaseMilestone[];
+  limitations: string[];
+  replicationConditions: string[];
+  manualReviewStatus: "pending" | "in_review" | "approved";
+  quality: CaseQualityReview;
+};
+
+export type CasePipelineStageId =
+  | "input_validation"
+  | "source_extraction"
+  | "project_identity"
+  | "web_research"
+  | "fact_evidence_extraction"
+  | "article_generation"
+  | "quality_review"
+  | "human_review_pending";
+
+export type CasePipelineStage = {
+  id: CasePipelineStageId;
+  label: string;
+  status: "completed" | "degraded" | "blocked" | "pending" | "skipped";
+  message: string;
+  durationMs: number;
+  attempts?: number;
+  provider?: string;
+  model?: string;
+  inputTokens?: number;
+  outputTokens?: number;
+  estimatedCostCny?: number;
+  inputSummary?: string;
+  outputSummary?: string;
+  retryable?: boolean;
+};
+
+export type CasePipelineRun = {
+  version: "1.0" | "1.1";
+  startedAt: string;
+  completedAt: string;
+  status: "completed" | "degraded" | "blocked";
+  stages: CasePipelineStage[];
+};
+
 export type CaseIdentityEvidence = {
   title: string;
   url: string;
@@ -150,6 +334,8 @@ export type SmartCityCase = {
   identity?: CaseProjectIdentity;
   article?: CaseArticle;
   media?: CaseMediaAsset[];
+  contentModel?: CaseContentModel;
+  parsePipeline?: CasePipelineRun;
   importedAt?: string;
   updatedAt?: string;
 };

@@ -33,6 +33,10 @@ import {
   articleSectionOrder,
   articleSectionTitles,
 } from "@/lib/case-editorial";
+import {
+  approveCaseContentModel,
+  normalizeCaseContentModel,
+} from "@/lib/case-content-model";
 
 type ImportMode = "网页链接" | "粘贴原文" | "本地文件";
 type WorkflowStep = "导入资料" | "AI解析" | "人工复核" | "位置确认" | "发布入库";
@@ -401,6 +405,8 @@ export default function AdminPage() {
         identity: payload.result.identity,
         article: payload.result.article,
         media,
+        contentModel: payload.result.contentModel,
+        parsePipeline: payload.meta.pipeline,
         sourceUrl,
         sourceNote: `由 AI 从${importedFile ? `文件“${importedFile.name}”` : "粘贴正文"}生成草稿；所有字段需人工复核后发布。`,
         sourceExcerpt: parsed.sourceExcerpt || activeText.slice(0, 420),
@@ -408,7 +414,7 @@ export default function AdminPage() {
         updatedAt: now,
       };
 
-      setCaseItem(nextCase);
+      setCaseItem(normalizeCaseContentModel(nextCase));
       setAssessments(payload.result.fieldAssessments);
       setReviewItems(payload.result.reviewItems);
       setParseMeta(payload.meta);
@@ -416,9 +422,9 @@ export default function AdminPage() {
       setStepIndex(2);
       setNotice(
         payload.meta.fallbackUsed
-          ? payload.meta.fallbackReason
+          ? `原生解析任务链已完成，但部分阶段发生降级：${payload.meta.fallbackReason}`
           : payload.meta.researchMode
-          ? `联网研究完成：已核验正式项目名称，生成结构化文章、${media.length} 张待复核图片和 ${payload.result.researchSources.length} 个可追溯来源。`
+          ? `原生解析完成：已生成独立证据包、七章文章、${media.length} 张待复核图片和 ${payload.result.researchSources.length} 个可追溯来源。`
           : `真实 AI 解析完成：生成了可编辑草稿，并标记 ${payload.result.reviewItems.length} 项人工核验事项。`,
       );
     } catch (error) {
@@ -492,46 +498,56 @@ export default function AdminPage() {
     }));
   }
 
-  function validateForPublish() {
+  function validateForPublish(item: SmartCityCase) {
     const next: string[] = [];
-    if (!caseItem.title.trim()) next.push("案例名称不能为空。");
-    if (!caseItem.city.trim()) next.push("城市不能为空。");
-    if (!caseItem.summary.trim()) next.push("案例摘要不能为空。");
-    if (!caseItem.sourceNote.trim()) next.push("请填写来源说明。");
-    if (caseItem.identity || caseItem.article) {
-      next.push(...articleQualityIssues(caseItem));
+    if (!item.title.trim()) next.push("案例名称不能为空。");
+    if (!item.city.trim()) next.push("城市不能为空。");
+    if (!item.summary.trim()) next.push("案例摘要不能为空。");
+    if (!item.sourceNote.trim()) next.push("请填写来源说明。");
+    if (item.identity || item.article) {
+      next.push(...articleQualityIssues(item));
     }
-    for (const [index, asset] of (caseItem.media || []).entries()) {
+    for (const [index, asset] of (item.media || []).entries()) {
       if (!asset.included) continue;
       if (!asset.reviewed) next.push(`第${index + 1}张入选图片尚未完成人工确认。`);
       if (!asset.caption.trim()) next.push(`第${index + 1}张入选图片缺少图注。`);
       if (!asset.alt.trim()) next.push(`第${index + 1}张入选图片缺少无障碍说明。`);
     }
     if (
-      !Number.isFinite(caseItem.lng) ||
-      !Number.isFinite(caseItem.lat) ||
-      caseItem.lng < -180 ||
-      caseItem.lng > 180 ||
-      caseItem.lat < -90 ||
-      caseItem.lat > 90 ||
-      (caseItem.lng === 0 && caseItem.lat === 0)
+      !Number.isFinite(item.lng) ||
+      !Number.isFinite(item.lat) ||
+      item.lng < -180 ||
+      item.lng > 180 ||
+      item.lat < -90 ||
+      item.lat > 90 ||
+      (item.lng === 0 && item.lat === 0)
     ) {
       next.push("请人工确认有效的地图经纬度；AI 不会猜测精确坐标。");
+    }
+    if (item.contentModel) {
+      next.push(...item.contentModel.quality.blockingIssues);
+      if (item.contentModel.quality.score < 70) {
+        next.push(`案例规范质量评分为 ${item.contentModel.quality.score}/100，达到70分后才可发布。`);
+      }
     }
     setErrors(next);
     return next.length === 0;
   }
 
   function persist(status: PublishStatus) {
-    if (status === "已发布" && !validateForPublish()) return;
     if (!caseItem.title.trim()) {
       setErrors(["请先完成 AI 解析或填写案例名称。"]);
       return;
     }
 
     const now = new Date().toISOString();
+    const normalized =
+      status === "已发布"
+        ? approveCaseContentModel(caseItem)
+        : normalizeCaseContentModel(caseItem);
+    if (status === "已发布" && !validateForPublish(normalized)) return;
     const item: SmartCityCase = {
-      ...caseItem,
+      ...normalized,
       id: caseItem.id || `local-${Date.now()}`,
       slug: caseItem.slug || createSlug(caseItem.title),
       status,
@@ -1205,12 +1221,103 @@ export default function AdminPage() {
                     </ul>
                   </div>
                 )}
+                {caseItem.parsePipeline && (
+                  <div className="rounded border border-sky-200 bg-sky-50/60 p-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="text-xs font-semibold text-sky-900">AI 解析任务链</div>
+                      <div className="text-[11px] text-sky-700">
+                        {caseItem.parsePipeline.status === "completed" ? "完整完成" : "已降级完成"}
+                      </div>
+                    </div>
+                    <ol className="mt-2 space-y-2">
+                      {caseItem.parsePipeline.stages.map((stage, index) => (
+                        <li key={stage.id} className="flex gap-2 text-xs leading-5">
+                          <span
+                            className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[9px] font-semibold ${
+                              stage.status === "completed"
+                                ? "bg-emerald-500 text-white"
+                                : stage.status === "degraded"
+                                  ? "bg-amber-500 text-white"
+                                  : stage.status === "pending"
+                                    ? "bg-sky-500 text-white"
+                                    : "bg-slate-300 text-slate-700"
+                            }`}
+                          >
+                            {index + 1}
+                          </span>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex flex-wrap items-center justify-between gap-x-2">
+                              <div className="font-medium text-slate-700">{stage.label}</div>
+                              {(stage.provider || stage.durationMs > 0) && (
+                                <div className="text-[10px] text-slate-400">
+                                  {[stage.provider, stage.model, stage.durationMs > 0 ? `${(stage.durationMs / 1000).toFixed(1)}s` : ""]
+                                    .filter(Boolean)
+                                    .join(" · ")}
+                                </div>
+                              )}
+                            </div>
+                            <div className="text-[11px] text-slate-500">{stage.message}</div>
+                            {(stage.inputSummary || stage.outputSummary) && (
+                              <div className="mt-1 rounded border border-sky-100 bg-white/70 px-2 py-1 text-[10px] leading-4 text-slate-500">
+                                {stage.inputSummary && <div>输入：{stage.inputSummary}</div>}
+                                {stage.outputSummary && <div>输出：{stage.outputSummary}</div>}
+                              </div>
+                            )}
+                            {((stage.inputTokens || 0) > 0 || (stage.estimatedCostCny || 0) > 0) && (
+                              <div className="mt-1 text-[10px] text-slate-400">
+                                输入 {(stage.inputTokens || 0).toLocaleString()} · 输出 {(stage.outputTokens || 0).toLocaleString()} tokens
+                                {` · 估算 ¥${(stage.estimatedCostCny || 0).toFixed(4)}`}
+                              </div>
+                            )}
+                          </div>
+                        </li>
+                      ))}
+                    </ol>
+                  </div>
+                )}
+                {caseItem.contentModel && (
+                  <div className="rounded border border-indigo-200 bg-indigo-50/50 p-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <div className="text-xs font-semibold text-indigo-900">Digital X 内容规范质量</div>
+                        <div className="mt-0.5 text-[10px] text-indigo-600">
+                          {caseItem.contentModel.generationMode === "native"
+                            ? "V1.0 原生解析协议"
+                            : "兼容模型转换"}
+                        </div>
+                      </div>
+                      <div className="text-sm font-bold text-indigo-700">
+                        {caseItem.contentModel.quality.score}/100
+                      </div>
+                    </div>
+                    <div className="mt-2 text-[11px] leading-5 text-slate-600">
+                      七章内容 {caseItem.contentModel.editorialSections.length} · 事实陈述 {caseItem.contentModel.claims.length} ·
+                      来源 {caseItem.contentModel.sources.length} · 主体 {caseItem.contentModel.organizations.length} ·
+                      数据 {caseItem.contentModel.dataAssets.length} · 场景 {caseItem.contentModel.scenarios.length} ·
+                      指标 {caseItem.contentModel.metrics.length}
+                    </div>
+                    {caseItem.contentModel.quality.blockingIssues.length > 0 && (
+                      <ul className="mt-2 space-y-1 text-[11px] leading-4 text-rose-700">
+                        {caseItem.contentModel.quality.blockingIssues.map((issue) => (
+                          <li key={issue}>• {issue}</li>
+                        ))}
+                      </ul>
+                    )}
+                    {caseItem.contentModel.quality.warnings.length > 0 && (
+                      <ul className="mt-2 space-y-1 text-[11px] leading-4 text-amber-700">
+                        {caseItem.contentModel.quality.warnings.map((warning) => (
+                          <li key={warning}>• {warning}</li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                )}
                 {parseMeta && (
                   <div className="rounded bg-slate-50 p-2.5 text-[11px] leading-5 text-slate-500">
                     本次调用：输入 {parseMeta.inputTokens.toLocaleString()} tokens · 输出 {parseMeta.outputTokens.toLocaleString()} tokens
                     {parseMeta.researchMode ? ` · 联网检索 ${parseMeta.searchQueryCount} 组` : ""}
                     {` · 估算费用 ¥${parseMeta.estimatedCostCny.toFixed(4)}`}
-                    {parseMeta.fallbackUsed ? " · 已降级为基础解析" : ""}
+                    {parseMeta.fallbackUsed ? " · 部分阶段已降级" : " · 原生任务链完整完成"}
                   </div>
                 )}
                 {(caseItem.researchSources?.length || 0) > 0 && (
