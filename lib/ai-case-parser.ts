@@ -1,7 +1,9 @@
 import type {
   CaseArticle,
+  CaseContentModel,
   CaseArticleSectionId,
   CaseMediaPlanItem,
+  CasePipelineRun,
   CaseProjectIdentity,
   CaseResearchSource,
   LocationMethod,
@@ -84,6 +86,7 @@ export type CaseParserOutput = {
   reviewItems: string[];
   researchSources: CaseResearchSource[];
   researchQueries: string[];
+  contentModel?: CaseContentModel;
 };
 
 export type CaseParserResponse = {
@@ -99,6 +102,7 @@ export type CaseParserResponse = {
     estimatedCostCny: number;
     fallbackUsed: boolean;
     fallbackReason: string;
+    pipeline: CasePipelineRun;
   };
 };
 

@@ -3,10 +3,8 @@ import {
   MAX_CASE_SOURCE_CHARACTERS,
   type CaseParserResponse,
 } from "@/lib/ai-case-parser";
-import {
-  AiProviderError,
-  parseCaseWithProvider,
-} from "@/lib/ai-case-parser-providers";
+import { AiProviderError } from "@/lib/ai-case-parser-providers";
+import { runCaseParserPipeline } from "@/lib/ai-case-pipeline";
 import type { CaseMediaCandidate } from "@/lib/case-model";
 
 export const runtime = "edge";
@@ -67,28 +65,13 @@ export async function POST(request: Request) {
   }
 
   try {
-    const parsed = await parseCaseWithProvider({
+    const response: CaseParserResponse = await runCaseParserPipeline({
       sourceText,
       sourceUrl,
       file,
       researchMode,
       mediaCandidates,
     });
-    const response: CaseParserResponse = {
-      result: parsed.result,
-      meta: {
-        provider: parsed.provider,
-        model: parsed.model,
-        responseId: parsed.responseId,
-        inputTokens: parsed.inputTokens,
-        outputTokens: parsed.outputTokens,
-        researchMode: parsed.researchMode,
-        searchQueryCount: parsed.searchQueryCount,
-        estimatedCostCny: parsed.estimatedCostCny,
-        fallbackUsed: parsed.fallbackUsed,
-        fallbackReason: parsed.fallbackReason,
-      },
-    };
     return Response.json(response);
   } catch (error) {
     if (error instanceof AiProviderError) {

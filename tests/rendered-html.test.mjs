@@ -62,6 +62,46 @@ test("renders the real AI parser entry in the admin workspace", async () => {
   assert.match(html, /只明确省份时，以省会城市中心作为地图展示锚点/);
 });
 
+test("keeps the compatibility content model and visible parser pipeline", async () => {
+  const modelSource = await readFile(
+    new URL("../lib/case-model.ts", import.meta.url),
+    "utf8",
+  );
+  const compatibilitySource = await readFile(
+    new URL("../lib/case-content-model.ts", import.meta.url),
+    "utf8",
+  );
+  const pipelineSource = await readFile(
+    new URL("../lib/ai-case-pipeline.ts", import.meta.url),
+    "utf8",
+  );
+  const nativeProtocolSource = await readFile(
+    new URL("../lib/ai-case-native-protocol.ts", import.meta.url),
+    "utf8",
+  );
+  const adminSource = await readFile(
+    new URL("../app/admin/page.tsx", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(modelSource, /contentModel\?: CaseContentModel/);
+  assert.match(modelSource, /parsePipeline\?: CasePipelineRun/);
+  assert.match(compatibilitySource, /normalizeCaseContentModel/);
+  assert.match(compatibilitySource, /publishable: score >= 70/);
+  assert.match(pipelineSource, /human_review_pending/);
+  assert.match(pipelineSource, /researchCaseSources/);
+  assert.match(pipelineSource, /requestDeepSeekJson/);
+  assert.match(pipelineSource, /version: "1\.1"/);
+  assert.match(pipelineSource, /联网资料研究/);
+  assert.match(nativeProtocolSource, /项目身份与基础字段解析器/);
+  assert.match(nativeProtocolSource, /事实与证据分析器/);
+  assert.match(nativeProtocolSource, /资深案例编辑/);
+  assert.match(nativeProtocolSource, /identityResolution/);
+  assert.match(adminSource, /AI 解析任务链/);
+  assert.match(adminSource, /Digital X 内容规范质量/);
+  assert.match(adminSource, /V1\.0 原生解析协议/);
+});
+
 test("renders the V1.4 map case workbench as the default home page", async () => {
   const worker = await loadWorker();
   const response = await worker.fetch(

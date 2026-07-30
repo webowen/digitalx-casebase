@@ -1,6 +1,7 @@
 "use client";
 
 import type { SmartCityCase } from "./case-model";
+import { normalizeCaseContentModel } from "./case-content-model";
 
 const STORAGE_KEY = "digitalx-casebase-local-cases-v1";
 
@@ -22,7 +23,7 @@ export function getLocalCases(): SmartCityCase[] {
             "title" in item &&
             "status" in item,
         ),
-    );
+    ).map(normalizeCaseContentModel);
   } catch {
     return [];
   }

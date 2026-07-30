@@ -74,7 +74,7 @@ const researchInstructions = `联网研究规则：
 4. 公开资料不足时宁可明确写“未检索到”，不能重复灌水或编造内容。
 5. researchSources 只填写本次实际检索并用于文章的来源；researchQueries 填写实际检索词。`;
 
-type ProviderInput = {
+export type ProviderInput = {
   sourceText: string;
   sourceUrl: string;
   file: File | null;
@@ -97,6 +97,24 @@ export type ProviderResult = {
   fallbackUsed: boolean;
   fallbackReason: string;
   result: CaseParserOutput;
+};
+
+export type NativeJsonResult<T> = {
+  provider: "deepseek";
+  model: string;
+  responseId: string;
+  inputTokens: number;
+  outputTokens: number;
+  estimatedCostCny: number;
+  value: T;
+};
+
+export type CaseResearchBundle = {
+  provider: "tavily" | "zhipu" | "tencent_wsa" | "qwen";
+  queries: string[];
+  sources: Array<{ title: string; url: string }>;
+  context: string;
+  estimatedCostCny: number;
 };
 
 export class AiProviderError extends Error {
@@ -305,6 +323,12 @@ function normalizeParserOutput(parsed: CaseParserOutput): CaseParserOutput {
       ),
     ],
   };
+}
+
+export function normalizeExternalParserOutput(
+  parsed: CaseParserOutput,
+): CaseParserOutput {
+  return applyLocationFallback(normalizeParserOutput(parsed));
 }
 
 function extractGeminiText(payload: unknown) {
@@ -1393,6 +1417,42 @@ async function requestDeepSeekCompletion(prompt: string, maxTokens: number) {
   );
 }
 
+export async function requestDeepSeekJson<T>(
+  prompt: string,
+  maxTokens: number,
+): Promise<NativeJsonResult<T>> {
+  const { model, payload } = await requestDeepSeekCompletion(prompt, maxTokens);
+  const root = objectValue(payload);
+  const usage = chatCompletionUsage(payload);
+  const rawText = extractChatCompletionText(payload);
+  const jsonText = rawText
+    .trim()
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/\s*```$/, "");
+  let value: T;
+  try {
+    value = JSON.parse(jsonText) as T;
+  } catch {
+    throw new AiProviderError(
+      "deepseek",
+      "DeepSeek返回的阶段性结构化结果无法解析，请重试。",
+      502,
+      "deepseek_native_invalid_output",
+    );
+  }
+  return {
+    provider: "deepseek",
+    model,
+    responseId: typeof root?.id === "string" ? root.id : "",
+    ...usage,
+    estimatedCostCny: estimateDeepSeekCostCny(
+      usage.inputTokens,
+      usage.outputTokens,
+    ),
+    value,
+  };
+}
+
 async function callDeepSeek(input: ProviderInput): Promise<ProviderResult> {
   if (input.file && !input.sourceText.trim()) {
     throw new AiProviderError(
@@ -1959,6 +2019,74 @@ function friendlySearchResearchError(provider: SearchResearchProvider, error: un
   if (provider === "tavily") return friendlyTavilySearchError(error);
   if (provider === "zhipu") return friendlyZhipuSearchError(error);
   return friendlyTencentWsaError(error);
+}
+
+export async function researchCaseSources(
+  input: ProviderInput,
+  basic: ProviderResult,
+): Promise<CaseResearchBundle> {
+  const provider = configuredResearchProvider();
+  if (provider === "tavily") {
+    const queries = buildResearchQueries(basic.result, input.sourceText).slice(
+      0,
+      MAX_TAVILY_SEARCH_QUERIES,
+    );
+    const research = await gatherTavilyResearch(queries);
+    return {
+      provider,
+      queries: research.queries,
+      sources: research.sources,
+      context: formatTavilyResearch(research.results),
+      estimatedCostCny: Number(
+        (research.queries.length * TAVILY_PAYG_SEARCH_COST_CNY).toFixed(4),
+      ),
+    };
+  }
+  if (provider === "zhipu") {
+    const queries = buildResearchQueries(basic.result, input.sourceText).slice(
+      0,
+      MAX_ZHIPU_SEARCH_QUERIES,
+    );
+    const research = await gatherZhipuResearch(queries);
+    return {
+      provider,
+      queries: research.queries,
+      sources: research.sources,
+      context: formatZhipuResearch(research.results),
+      estimatedCostCny: Number(
+        (research.queries.length * ZHIPU_SEARCH_STD_COST_CNY).toFixed(4),
+      ),
+    };
+  }
+  if (provider === "tencent_wsa") {
+    const queries = buildTencentWsaQueries(basic.result);
+    const research = await gatherTencentWsaResearch(queries);
+    return {
+      provider,
+      queries: research.queries,
+      sources: research.sources,
+      context: formatTencentWsaResearch(research.results),
+      estimatedCostCny: Number(
+        (research.queries.length * TENCENT_WSA_LITE_SEARCH_COST_CNY).toFixed(4),
+      ),
+    };
+  }
+
+  const qwen = await callQwen({ ...input, researchMode: true });
+  return {
+    provider: "qwen",
+    queries: qwen.result.researchQueries,
+    sources: qwen.result.researchSources,
+    context: [
+      "千问联网研究形成的结构化草稿：",
+      JSON.stringify({
+        identity: qwen.result.identity,
+        case: qwen.result.case,
+        article: qwen.result.article,
+      }),
+    ].join("\n"),
+    estimatedCostCny: qwen.estimatedCostCny,
+  };
 }
 
 export async function parseCaseWithProvider(input: ProviderInput) {
