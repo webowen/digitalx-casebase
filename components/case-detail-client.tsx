@@ -17,6 +17,7 @@ import {
   type CaseMediaAsset,
   type SmartCityCase,
 } from "@/lib/case-model";
+import { buildCaseDocument } from "@/lib/case-document";
 import { normalizeArticle } from "@/lib/case-editorial";
 import { getLocalCases } from "@/lib/local-cases";
 
@@ -94,6 +95,7 @@ function makeResearchChapters(report?: string): ReaderChapter[] {
 
 function makeChapters(item?: SmartCityCase): ReaderChapter[] {
   if (!item) return [];
+  const document = buildCaseDocument(item);
 
   const sourceChapter: ReaderChapter = {
     id: "sources",
@@ -105,98 +107,43 @@ function makeChapters(item?: SmartCityCase): ReaderChapter[] {
     ].filter(Boolean),
     note: `来源类型：${item.sourceType}｜证据等级：${item.evidenceLevel}｜入库状态：${item.status}`,
   };
-
-  if (item.article?.sections.length) {
-    const article = normalizeArticle(item.article, item);
-    const articleChapters: ReaderChapter[] = article.sections.map((section, index) => ({
-      id: `article-${section.id}`,
-      eyebrow: `第 ${String(index + 1).padStart(2, "0")} 章`,
+  const documentChapters: ReaderChapter[] = document.sections.map(
+    (section, index) => ({
+      id: `document-${section.id}`,
+      eyebrow: `第 ${String(index + 1).padStart(2, "0")} 部分`,
       title: section.title,
       paragraphs: [section.summary, ...section.paragraphs].filter(Boolean),
-      points: section.points,
-      note: section.evidenceRefs.length > 0 ? `证据关联：${section.evidenceRefs.join("、")}` : undefined,
-      media: (item.media || []).filter(
-        (asset) => asset.included && asset.reviewed && asset.sectionId === section.id,
-      ),
-    }));
-    return [
-      {
-        id: "abstract",
-        eyebrow: "导读",
-        title: "案例要点",
-        paragraphs: [article.standfirst],
-        points: article.keyFindings,
-        note: `正式名称核验置信度 ${Math.round((item.identity?.confidence || 0) * 100)}%。当前证据等级为“${item.evidenceLevel}”。`,
-      },
-      ...articleChapters,
-      sourceChapter,
-    ];
-  }
-
-  const implementation = [
-    item.projectStage ? `项目目前处于${item.projectStage}阶段。` : "",
-    item.investmentAmount ? `公开信息显示，项目投资为${item.investmentAmount}。` : "",
-    item.fundingSource ? `资金来源为${item.fundingSource}。` : "",
-    item.implementationUnit ? `实施单位为${item.implementationUnit}。` : "",
-    item.operationUnit ? `运营单位为${item.operationUnit}。` : "",
-  ].filter(Boolean);
-
-  const baseChapters: ReaderChapter[] = [
+      points: [
+        ...section.points,
+        ...section.scenarios.map((scenario) =>
+          [
+            scenario.name,
+            scenario.problem ? `业务问题：${scenario.problem}` : "",
+            scenario.systemActions.length
+              ? `系统动作：${scenario.systemActions.join("、")}`
+              : "",
+            scenario.result ? `形成结果：${scenario.result}` : "",
+          ]
+            .filter(Boolean)
+            .join("｜"),
+        ),
+      ],
+      media: section.media,
+    }),
+  );
+  return [
     {
       id: "abstract",
       eyebrow: "导读",
-      title: "案例摘要",
-      paragraphs: [item.summary],
-      note: `这是一个${item.coverageType}案例，空间层级为${item.locationLevel}。当前收录证据等级为“${item.evidenceLevel}”，建议结合文末来源判断信息可靠性。`,
+      title: "案例要点",
+      paragraphs: [document.standfirst],
+      points: document.keyFindings,
+      note: `本文按 Digital X 七部分案例内容协议展示。当前证据等级为“${item.evidenceLevel}”。`,
     },
-    {
-      id: "background",
-      eyebrow: "第一部分",
-      title: "项目为什么提出",
-      paragraphs: [
-        `${item.city}${item.district ? `·${item.district}` : ""}在推进${item.category}建设过程中，项目首先需要回应以下现实问题。`,
-      ],
-      points: item.painPoints,
-    },
-    {
-      id: "solution",
-      eyebrow: "第二部分",
-      title: "具体建设了什么",
-      paragraphs: [
-        "从现有资料看，项目没有停留在单一展示界面，而是围绕业务对象、数据能力和协同流程组织建设内容。",
-      ],
-      points: item.solution,
-    },
-    {
-      id: "implementation",
-      eyebrow: "第三部分",
-      title: "项目如何投资、建设与运营",
-      paragraphs:
-        implementation.length > 0
-          ? implementation
-          : [
-              `项目建设主体为${item.owner}。当前公开材料尚未完整披露投资、实施与运营信息，正式研判时需要继续补充招标、中标、合同或验收资料。`,
-            ],
-      note: `地图位置采用${item.locationLevel}定位，位置置信度为 ${Math.round(item.locationConfidence * 100)}%。`,
-    },
-    {
-      id: "outcomes",
-      eyebrow: "第四部分",
-      title: "项目取得了什么成效",
-      paragraphs: [
-        "案例材料归纳出以下阶段性成效。正式引用时仍应关注指标口径、统计周期以及是否来自第三方验收。",
-      ],
-      points: item.outcomes,
-    },
-    {
-      id: "judgement",
-      eyebrow: "第五部分",
-      title: "真正值得借鉴的地方",
-      paragraphs: [item.expertView],
-      note: "本部分属于案例库研判，不等同于项目建设单位或原始来源的公开结论。",
-    },
+    ...documentChapters,
+    ...makeResearchChapters(item.researchReport),
+    sourceChapter,
   ];
-  return [...baseChapters, ...makeResearchChapters(item.researchReport), sourceChapter];
 }
 
 function estimateReadingMinutes(item: SmartCityCase, chapters: ReaderChapter[]) {

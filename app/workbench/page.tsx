@@ -4,6 +4,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AMapCaseMap, type AMapCasePoint } from "@/components/amap-case-map";
+import { CaseDocument } from "@/components/case-document";
 import {
   categories,
   categoryColors,
@@ -273,6 +274,7 @@ export default function MapWorkbench() {
   const [activeProvince, setActiveProvince] = useState<FilterValue>("全部");
   const [activeCity, setActiveCity] = useState<FilterValue>("全部");
   const [selectedCaseSlug, setSelectedCaseSlug] = useState("");
+  const [documentOpen, setDocumentOpen] = useState(false);
   const [urlReady, setUrlReady] = useState(false);
   const [leftOpen, setLeftOpen] = useState(false);
   const [rightOpen, setRightOpen] = useState(false);
@@ -287,7 +289,9 @@ export default function MapWorkbench() {
     setEvidenceLevel(params.get("evidence") ?? "全部");
     setActiveProvince(params.get("province") ?? "全部");
     setActiveCity(params.get("city") ?? "全部");
-    setSelectedCaseSlug(params.get("case") ?? "");
+    const caseSlug = params.get("case") ?? "";
+    setSelectedCaseSlug(caseSlug);
+    setDocumentOpen(Boolean(caseSlug) && params.get("view") === "document");
     if (["national", "province", "city", "project"].includes(level ?? "")) {
       setMapLevel(level as MapLevel);
     }
@@ -327,6 +331,7 @@ export default function MapWorkbench() {
     if (activeProvince !== "全部") params.set("province", activeProvince);
     if (activeCity !== "全部") params.set("city", activeCity);
     if (selectedCaseSlug) params.set("case", selectedCaseSlug);
+    if (selectedCaseSlug && documentOpen) params.set("view", "document");
     if (mapLevel !== "national") params.set("level", mapLevel);
     if (directoryMode !== "category") params.set("directory", directoryMode);
     const query = params.toString();
@@ -336,6 +341,7 @@ export default function MapWorkbench() {
     activeProvince,
     category,
     directoryMode,
+    documentOpen,
     evidenceLevel,
     keyword,
     mapLevel,
@@ -436,10 +442,9 @@ export default function MapWorkbench() {
       })),
     [mappableVisibleCases],
   );
-  const previewMedia = activeSelectedCase?.media?.find((asset) => asset.included && asset.reviewed);
-
   const selectCase = useCallback((item: SmartCityCase) => {
     setSelectedCaseSlug(item.slug);
+    setDocumentOpen(true);
     setMapLevel("project");
     setLeftOpen(false);
   }, []);
@@ -454,6 +459,7 @@ export default function MapWorkbench() {
       setActiveCity("全部");
       setActiveProvince("全部");
       setSelectedCaseSlug("");
+      setDocumentOpen(false);
       setMapLevel("national");
       return;
     }
@@ -461,6 +467,7 @@ export default function MapWorkbench() {
     setActiveCity(city);
     setActiveProvince(firstCase?.province ?? "全部");
     setSelectedCaseSlug(firstCase?.slug ?? "");
+    setDocumentOpen(false);
     setMapLevel("city");
   }, [filteredByControls]);
 
@@ -470,9 +477,11 @@ export default function MapWorkbench() {
       setActiveProvince("全部");
       setActiveCity("全部");
       setSelectedCaseSlug("");
+      setDocumentOpen(false);
     } else if (level === "province") {
       setActiveCity("全部");
       setSelectedCaseSlug("");
+      setDocumentOpen(false);
       if (activeProvince === "全部" && effectiveSelectedCase) {
         setActiveProvince(effectiveSelectedCase.province);
       }
@@ -480,6 +489,7 @@ export default function MapWorkbench() {
       setActiveProvince(effectiveSelectedCase.province);
       setActiveCity(effectiveSelectedCase.city);
       setSelectedCaseSlug("");
+      setDocumentOpen(false);
     } else if (level === "project" && effectiveSelectedCase) {
       selectCase(effectiveSelectedCase);
     }
@@ -493,13 +503,22 @@ export default function MapWorkbench() {
     setActiveProvince("全部");
     setActiveCity("全部");
     setSelectedCaseSlug("");
+    setDocumentOpen(false);
     setMapLevel("national");
   }, []);
 
-  const closePreview = useCallback(() => {
-    setSelectedCaseSlug("");
-    setMapLevel(activeCity !== "全部" ? "city" : activeProvince !== "全部" ? "province" : "national");
-  }, [activeCity, activeProvince]);
+  const closeDocument = useCallback(() => {
+    setDocumentOpen(false);
+  }, []);
+
+  useEffect(() => {
+    if (!documentOpen) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") closeDocument();
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [closeDocument, documentOpen]);
 
   const activeFilterCount =
     [category, year, evidenceLevel, activeProvince, activeCity].filter((item) => item !== "全部").length +
@@ -641,65 +660,18 @@ export default function MapWorkbench() {
             {activeCity !== "全部" ? ` / ${activeCity}` : ""} · {visibleCases.length} 案例
           </div>
 
-          {activeSelectedCase && (
-            <article className="brand-preview-card absolute inset-x-3 bottom-3 z-20 mx-auto max-w-xl overflow-hidden rounded-xl backdrop-blur sm:bottom-4">
+          {activeSelectedCase && documentOpen && (
+            <div className="case-document-layer">
               <button
                 type="button"
-                onClick={closePreview}
-                aria-label="关闭案例预览"
-                className="absolute right-2 top-2 z-10 flex h-7 w-7 items-center justify-center rounded-full border border-slate-200 bg-white/90 text-sm text-slate-500 shadow-sm transition hover:bg-white hover:text-slate-900"
-              >
-                ×
-              </button>
-              <div className="grid sm:grid-cols-[112px_minmax(0,1fr)]">
-                <div className="brand-preview-visual relative hidden min-h-40 overflow-hidden sm:block">
-                  {previewMedia ? (
-                    <Image
-                      src={previewMedia.url}
-                      alt={previewMedia.alt}
-                      fill
-                      sizes="112px"
-                      className="object-cover"
-                      unoptimized
-                    />
-                  ) : (
-                    <div className="absolute inset-0 flex flex-col justify-end p-3 text-white">
-                      <span className="text-[9px] font-bold tracking-[0.14em] text-cyan-100">DIGITAL X CASE</span>
-                      <strong className="mt-1.5 text-xs leading-5">{activeSelectedCase.category}</strong>
-                      <span className="mt-1 text-[9px] text-white/70">暂无已复核图片</span>
-                    </div>
-                  )}
-                </div>
-                <div className="min-w-0 p-3 pr-11 sm:p-4 sm:pr-12">
-                  <div className="flex flex-wrap items-center gap-1.5 text-[10px] text-slate-500">
-                    <span className="brand-link font-medium">{activeSelectedCase.category}</span>
-                    <span>·</span>
-                    <span>{activeSelectedCase.province} {activeSelectedCase.city} {activeSelectedCase.district ?? ""}</span>
-                    <span>·</span>
-                    <span>{activeSelectedCase.year}</span>
-                    <span className="rounded bg-slate-100 px-1.5 py-0.5">证据 {activeSelectedCase.evidenceLevel}</span>
-                  </div>
-                  <h2 className="mt-1.5 line-clamp-2 text-sm font-semibold leading-5 text-slate-950">
-                    {activeSelectedCase.title}
-                  </h2>
-                  <p className="mt-1.5 line-clamp-2 text-[11px] leading-[18px] text-slate-600">
-                    {activeSelectedCase.summary}
-                  </p>
-                  <div className="mt-2 flex min-w-0 flex-wrap gap-x-4 gap-y-1 text-[10px] text-slate-500">
-                    <p className="truncate"><span className="text-slate-400">建设主体：</span>{activeSelectedCase.owner}</p>
-                    <p><span className="text-slate-400">阶段：</span>{activeSelectedCase.projectStage ?? "待核验"}</p>
-                  </div>
-                  <div className="mt-2.5 flex flex-wrap items-center gap-2">
-                    <Link href={`/cases/${activeSelectedCase.slug}`} className="brand-gradient-button rounded-full px-3 py-1.5 text-[11px] font-semibold text-white">
-                      完整阅读
-                    </Link>
-                    <span className="text-[9px] text-slate-400">
-                      {activeSelectedCase.locationLevel} · 坐标可信度 {Math.round(activeSelectedCase.locationConfidence * 100)}%
-                    </span>
-                  </div>
-                </div>
+                aria-label="关闭案例文档遮罩"
+                className="case-document-backdrop"
+                onClick={closeDocument}
+              />
+              <div className="case-document-shell">
+                <CaseDocument item={activeSelectedCase} onClose={closeDocument} />
               </div>
-            </article>
+            </div>
           )}
         </section>
 
