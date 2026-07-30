@@ -58,6 +58,7 @@ export function CaseDocument({
               {item.province} · {item.city}
             </span>
             <span>{item.year}</span>
+            {item.contentMigration?.benchmark && <em>V1.5 标杆样稿</em>}
           </div>
           <h1>{document.title}</h1>
           <p className="case-document-standfirst">{document.standfirst}</p>
