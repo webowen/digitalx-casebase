@@ -137,12 +137,40 @@ test("selecting a directory case does not silently narrow the directory to one c
 
   assert.ok(selectCaseBody);
   assert.match(selectCaseBody, /setSelectedCaseSlug\(item\.slug\)/);
+  assert.match(selectCaseBody, /setDocumentOpen\(true\)/);
   assert.match(selectCaseBody, /setMapLevel\("project"\)/);
   assert.doesNotMatch(selectCaseBody, /setActiveProvince/);
   assert.doesNotMatch(selectCaseBody, /setActiveCity/);
-  assert.match(source, /aria-label="关闭案例预览"/);
-  assert.match(source, /max-w-xl/);
-  assert.match(source, /完整阅读/);
+  assert.match(source, /view", "document"/);
+  assert.match(source, /aria-label="关闭案例文档遮罩"/);
+  assert.match(source, /<CaseDocument item=\{activeSelectedCase\}/);
+  assert.doesNotMatch(source, /aria-label="关闭案例预览"/);
+});
+
+test("uses one seven-part content protocol in both embedded and immersive reading", async () => {
+  const documentSource = await readFile(
+    new URL("../lib/case-document.ts", import.meta.url),
+    "utf8",
+  );
+  const embeddedSource = await readFile(
+    new URL("../components/case-document.tsx", import.meta.url),
+    "utf8",
+  );
+  const immersiveSource = await readFile(
+    new URL("../components/case-detail-client.tsx", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(documentSource, /contentModel\?\.editorialSections/);
+  assert.match(documentSource, /caseDocumentSectionOrder/);
+  assert.match(embeddedSource, /native-seven-part/);
+  assert.match(embeddedSource, /第 \{String\(index \+ 1\)\.padStart\(2, "0"\)\} 部分/);
+  assert.match(embeddedSource, /沉浸阅读/);
+  assert.match(immersiveSource, /buildCaseDocument\(item\)/);
+  assert.match(
+    immersiveSource,
+    /eyebrow: `第 \$\{String\(index \+ 1\)\.padStart\(2, "0"\)\} 部分`/,
+  );
 });
 
 test("keeps the V1.3 public home available as a legacy archive", async () => {
