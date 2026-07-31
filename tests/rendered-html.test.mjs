@@ -194,6 +194,25 @@ test("uses one seven-part content protocol in both embedded and immersive readin
   );
 });
 
+test("admin exposes beta benchmark review and batch production governance", async () => {
+  const adminSource = await readFile(
+    new URL("../app/admin/page.tsx", import.meta.url),
+    "utf8",
+  );
+  const boardSource = await readFile(
+    new URL("../components/content-production-board.tsx", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(adminSource, /ContentProductionBoard/);
+  assert.match(adminSource, /advanceCurrentProduction/);
+  assert.match(adminSource, /推进到下一生产阶段/);
+  assert.match(boardSource, /V1\.5\.0-beta\.1/);
+  assert.match(boardSource, /V1\.5\.0-beta\.2/);
+  assert.match(boardSource, /三份标杆案例终审驾驶舱/);
+  assert.match(boardSource, /17份案例分三批生产/);
+});
+
 test("keeps the V1.3 public home available as a legacy archive", async () => {
   const worker = await loadWorker();
   const response = await worker.fetch(
