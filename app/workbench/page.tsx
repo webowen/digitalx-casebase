@@ -352,7 +352,14 @@ export default function MapWorkbench() {
   ]);
 
   const publishedCases = useMemo(
-    () => [...localCases.filter((item) => item.status === "已发布"), ...staticPublishedCases],
+    () => {
+      const localPublished = localCases.filter((item) => item.status === "已发布");
+      const localIds = new Set(localPublished.map((item) => item.id));
+      return [
+        ...localPublished,
+        ...staticPublishedCases.filter((item) => !localIds.has(item.id)),
+      ];
+    },
     [localCases],
   );
   const migrationSummary = useMemo(
@@ -444,6 +451,7 @@ export default function MapWorkbench() {
         locationConfidence: Number.isFinite(Number(item.locationConfidence))
           ? Number(item.locationConfidence)
           : 0,
+        benchmark: item.contentMigration?.benchmark,
       })),
     [mappableVisibleCases],
   );
@@ -461,10 +469,6 @@ export default function MapWorkbench() {
     setDocumentOpen(true);
     setMapLevel("project");
   }, [publishedCases]);
-
-  const openSelectedDocument = useCallback(() => {
-    if (activeSelectedCase) setDocumentOpen(true);
-  }, [activeSelectedCase]);
 
   const selectCity = useCallback((city: string) => {
     if (city === "全部") {
@@ -672,30 +676,6 @@ export default function MapWorkbench() {
             {activeCity !== "全部" ? ` / ${activeCity}` : ""} · {visibleCases.length} 案例
           </div>
 
-          {activeSelectedCase && !documentOpen && (
-            <article className="case-poi-card">
-              <div className="case-poi-symbol" aria-hidden="true">
-                <span />
-              </div>
-              <div className="min-w-0 flex-1">
-                <p>
-                  {activeSelectedCase.category} · {activeSelectedCase.province}
-                  {activeSelectedCase.city}
-                </p>
-                <h2>
-                  {activeSelectedCase.title}
-                  {activeSelectedCase.contentMigration?.benchmark && (
-                    <em>标杆样稿</em>
-                  )}
-                </h2>
-                <span>地图已定位到项目点位；点击地图标记或按钮查看完整案例。</span>
-              </div>
-              <button type="button" onClick={openSelectedDocument}>
-                查看案例
-              </button>
-            </article>
-          )}
-
           {activeSelectedCase && documentOpen && (
             <div className="case-document-layer">
               <button
@@ -796,7 +776,7 @@ export default function MapWorkbench() {
                   <strong className="text-xl text-slate-900">
                     {migrationSummary.migrated}/{migrationSummary.total}
                   </strong>
-                  <span className="text-[10px] text-slate-500">已迁移案例</span>
+                  <span className="text-[10px] text-slate-500">协议迁移</span>
                 </div>
                 <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-200">
                   <span
@@ -811,7 +791,8 @@ export default function MapWorkbench() {
                   />
                 </div>
                 <p className="mt-2 text-[10px] leading-4 text-slate-600">
-                  其中 {migrationSummary.benchmarkDrafts} 个标杆样稿已采用原生七部分内容协议，等待内容负责人终审。
+                  全部案例已进入原生七章协议；其中 {migrationSummary.benchmarkDrafts} 个标杆样稿进入终审，
+                  {migrationSummary.batchMigrated} 个存量案例仍待扩写、补证据和人工批准。
                 </p>
               </div>
             </section>
