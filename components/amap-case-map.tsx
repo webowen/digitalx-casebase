@@ -48,6 +48,12 @@ type MarkerLike = {
   getPosition?(): LngLatLike | undefined;
   setContent(content: HTMLElement | string): void;
   setOffset(offset: unknown): void;
+  setMap(map: MapLike | null): void;
+};
+
+type InfoWindowLike = {
+  open(map: MapLike, position: [number, number]): void;
+  close(): void;
 };
 
 type PointRenderContext = {
@@ -72,6 +78,8 @@ type MapLike = {
 
 type AMapNamespace = {
   Map: new (container: HTMLElement, options: Record<string, unknown>) => MapLike;
+  Marker: new (options: Record<string, unknown>) => MarkerLike;
+  InfoWindow: new (options: Record<string, unknown>) => InfoWindowLike;
   MarkerCluster: new (
     map: MapLike,
     data: AMapPointData[],
@@ -192,12 +200,23 @@ function createPointMarker(
     return;
   }
 
+  const marker = createCaseMarkerElement(point, onSelectCase, false);
+  context.marker.setContent(marker);
+  context.marker.setOffset(new AMap.Pixel(-14, -34));
+}
+
+function createCaseMarkerElement(
+  point: CasePointData,
+  onSelectCase: (id: string) => void,
+  active: boolean,
+) {
   const marker = document.createElement("div");
-  marker.className = `amap-case-point${point.active ? " is-active" : ""}`;
+  marker.className = `amap-case-point${active ? " is-active" : ""}`;
+  marker.dataset.caseId = point.id;
 
   const pin = document.createElement("button");
   pin.type = "button";
-  pin.className = "amap-case-marker";
+  pin.className = `amap-case-marker${active ? " is-active" : ""}`;
   pin.setAttribute("aria-label", `查看案例：${point.title}`);
   pin.title = `${point.title} · 位置置信度 ${Math.round(point.locationConfidence * 100)}%`;
   const dot = document.createElement("span");
@@ -207,30 +226,37 @@ function createPointMarker(
   pin.addEventListener("click", () => onSelectCase(point.id));
   marker.append(pin);
 
-  if (point.active) {
-    const popup = document.createElement("button");
-    popup.type = "button";
-    popup.className = "amap-case-popup";
-    popup.setAttribute("aria-label", `打开完整案例：${point.title}`);
+  return marker;
+}
 
-    const eyebrow = document.createElement("span");
-    eyebrow.className = "amap-case-popup-eyebrow";
-    eyebrow.textContent = `${point.category} · ${point.province}${point.city}`;
-    const title = document.createElement("strong");
-    title.textContent = point.title;
-    const meta = document.createElement("span");
-    meta.className = "amap-case-popup-meta";
-    meta.textContent = `${point.locationLevel} · 位置置信度 ${Math.round(point.locationConfidence * 100)}%`;
-    const action = document.createElement("span");
-    action.className = "amap-case-popup-action";
-    action.textContent = point.benchmark ? "标杆样稿 · 查看案例 →" : "查看完整案例 →";
-    popup.append(eyebrow, title, meta, action);
-    popup.addEventListener("click", () => onSelectCase(point.id));
-    marker.append(popup);
-  }
+function createCaseInfoCard(
+  point: CasePointData,
+  onSelectCase: (id: string) => void,
+) {
+  const wrapper = document.createElement("div");
+  wrapper.className = "amap-case-infowindow";
+  wrapper.dataset.caseId = point.id;
 
-  context.marker.setContent(marker);
-  context.marker.setOffset(new AMap.Pixel(-14, -34));
+  const popup = document.createElement("button");
+  popup.type = "button";
+  popup.className = "amap-case-popup";
+  popup.setAttribute("aria-label", `打开完整案例：${point.title}`);
+
+  const eyebrow = document.createElement("span");
+  eyebrow.className = "amap-case-popup-eyebrow";
+  eyebrow.textContent = `${point.category} · ${point.province}${point.city}`;
+  const title = document.createElement("strong");
+  title.textContent = point.title;
+  const meta = document.createElement("span");
+  meta.className = "amap-case-popup-meta";
+  meta.textContent = `${point.locationLevel} · 位置置信度 ${Math.round(point.locationConfidence * 100)}%`;
+  const action = document.createElement("span");
+  action.className = "amap-case-popup-action";
+  action.textContent = point.benchmark ? "标杆样稿 · 查看案例 →" : "查看完整案例 →";
+  popup.append(eyebrow, title, meta, action);
+  popup.addEventListener("click", () => onSelectCase(point.id));
+  wrapper.append(popup);
+  return wrapper;
 }
 
 function createClusterMarker(
@@ -279,6 +305,8 @@ export function AMapCaseMap({
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MapLike | null>(null);
   const clusterRef = useRef<ClusterLike | null>(null);
+  const activeMarkerRef = useRef<MarkerLike | null>(null);
+  const infoWindowRef = useRef<InfoWindowLike | null>(null);
   const amapRef = useRef<AMapNamespace | null>(null);
   const onSelectCityRef = useRef(onSelectCity);
   const onSelectCaseRef = useRef(onSelectCase);
@@ -328,6 +356,10 @@ export function AMapCaseMap({
       cancelled = true;
       clusterRef.current?.setMap(null);
       clusterRef.current = null;
+      activeMarkerRef.current?.setMap(null);
+      activeMarkerRef.current = null;
+      infoWindowRef.current?.close();
+      infoWindowRef.current = null;
       mapRef.current?.destroy();
       mapRef.current = null;
       amapRef.current = null;
@@ -342,6 +374,10 @@ export function AMapCaseMap({
 
     clusterRef.current?.setMap(null);
     clusterRef.current = null;
+    activeMarkerRef.current?.setMap(null);
+    activeMarkerRef.current = null;
+    infoWindowRef.current?.close();
+    infoWindowRef.current = null;
     const sourcePoints = displayMode === "case" ? casePoints : cities;
     if (sourcePoints.length === 0) return;
 
@@ -361,28 +397,70 @@ export function AMapCaseMap({
           }));
 
     try {
-      const cluster = new AMap.MarkerCluster(map, points, {
-        gridSize: displayMode === "case" ? 52 : 68,
-        maxZoom: displayMode === "case" ? 15 : 10,
-        averageCenter: true,
-        zoomOnClick: true,
-        renderMarker: (context: PointRenderContext) =>
-          createPointMarker(
-            AMap,
-            context,
-            points,
-            (city) => onSelectCityRef.current(city),
-            (id) => onSelectCaseRef.current(id),
-          ),
-        renderClusterMarker: (context: ClusterRenderContext) =>
-          createClusterMarker(AMap, context, displayMode === "case" ? "case" : "city"),
-      });
-      clusterRef.current = cluster;
+      const selectedPoint =
+        displayMode === "case"
+          ? points.find(
+              (point): point is CasePointData =>
+                point.kind === "case" && point.id === activeCaseId,
+            )
+          : undefined;
+      const clusterPoints = selectedPoint
+        ? points.filter((point) => point.kind !== "case" || point.id !== selectedPoint.id)
+        : points;
+
+      let cluster: ClusterLike | null = null;
+      if (clusterPoints.length > 0) {
+        cluster = new AMap.MarkerCluster(map, clusterPoints, {
+          gridSize: displayMode === "case" ? 52 : 68,
+          maxZoom: displayMode === "case" ? 15 : 10,
+          averageCenter: true,
+          zoomOnClick: true,
+          renderMarker: (context: PointRenderContext) =>
+            createPointMarker(
+              AMap,
+              context,
+              clusterPoints,
+              (city) => onSelectCityRef.current(city),
+              (id) => onSelectCaseRef.current(id),
+            ),
+          renderClusterMarker: (context: ClusterRenderContext) =>
+            createClusterMarker(AMap, context, displayMode === "case" ? "case" : "city"),
+        });
+        clusterRef.current = cluster;
+      }
 
       if (displayMode === "case") {
         const selected = casePoints.find((point) => point.id === activeCaseId);
         if (selected) {
           map.setZoomAndCenter(locationZoom[selected.locationLevel], [selected.lng, selected.lat], false, 350);
+          if (selectedPoint) {
+            const activeMarker = new AMap.Marker({
+              position: [selectedPoint.lng, selectedPoint.lat],
+              content: createCaseMarkerElement(
+                selectedPoint,
+                (id) => onSelectCaseRef.current(id),
+                true,
+              ),
+              offset: new AMap.Pixel(-14, -34),
+              zIndex: 320,
+            });
+            activeMarker.setMap(map);
+            activeMarkerRef.current = activeMarker;
+
+            const infoWindow = new AMap.InfoWindow({
+              isCustom: true,
+              content: createCaseInfoCard(
+                selectedPoint,
+                (id) => onSelectCaseRef.current(id),
+              ),
+              anchor: "bottom-center",
+              offset: new AMap.Pixel(0, -42),
+              autoMove: true,
+              closeWhenClickMap: false,
+            });
+            infoWindow.open(map, [selectedPoint.lng, selectedPoint.lat]);
+            infoWindowRef.current = infoWindow;
+          }
         } else if (casePoints.length === 1) {
           map.setZoomAndCenter(locationZoom[casePoints[0].locationLevel], [casePoints[0].lng, casePoints[0].lat], false, 350);
         } else {
@@ -397,8 +475,12 @@ export function AMapCaseMap({
 
       return () => {
         if (fitViewTimer !== undefined) window.clearTimeout(fitViewTimer);
-        cluster.setMap(null);
+        cluster?.setMap(null);
         if (clusterRef.current === cluster) clusterRef.current = null;
+        activeMarkerRef.current?.setMap(null);
+        activeMarkerRef.current = null;
+        infoWindowRef.current?.close();
+        infoWindowRef.current = null;
       };
     } catch (error) {
       window.setTimeout(() => {
