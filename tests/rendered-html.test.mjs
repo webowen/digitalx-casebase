@@ -146,9 +146,14 @@ test("directory selection focuses the map before a POI opens the document", asyn
   assert.doesNotMatch(focusCaseBody, /setActiveProvince/);
   assert.doesNotMatch(focusCaseBody, /setActiveCity/);
   assert.match(poiBody, /setDocumentOpen\(true\)/);
-  assert.match(source, /className="case-poi-card"/);
-  assert.match(source, /地图已定位到项目点位/);
-  assert.match(source, /查看案例/);
+  assert.doesNotMatch(source, /className="case-poi-card"/);
+  const mapSource = await readFile(
+    new URL("../components/amap-case-map.tsx", import.meta.url),
+    "utf8",
+  );
+  assert.match(mapSource, /className = "amap-case-popup"/);
+  assert.match(mapSource, /打开完整案例/);
+  assert.match(mapSource, /popup\.addEventListener\("click"/);
   assert.match(source, /view", "document"/);
   assert.match(source, /aria-label="关闭案例文档遮罩"/);
   assert.match(source, /<CaseDocument item=\{activeSelectedCase\}/);

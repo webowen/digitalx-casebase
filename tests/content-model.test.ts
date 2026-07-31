@@ -25,6 +25,8 @@ test("does not attach every research source to unsupported legacy claims", () =>
   const base = smartCityCases[0];
   const draft: SmartCityCase = {
     ...base,
+    contentModel: undefined,
+    contentMigration: undefined,
     researchSources: [
       { title: "来源一", url: "https://example.com/one" },
       { title: "来源二", url: "https://example.com/two" },

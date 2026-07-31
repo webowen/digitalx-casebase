@@ -21,6 +21,7 @@ export type AMapCasePoint = {
   lat: number;
   locationLevel: LocationLevel;
   locationConfidence: number;
+  benchmark?: boolean;
 };
 
 type CityPointData = AMapCityPoint & {
@@ -191,13 +192,43 @@ function createPointMarker(
     return;
   }
 
-  const marker = document.createElement("button");
-  marker.type = "button";
-  marker.className = `amap-case-marker${point.active ? " is-active" : ""}`;
-  marker.setAttribute("aria-label", `查看案例：${point.title}`);
-  marker.title = `${point.title} · 位置置信度 ${Math.round(point.locationConfidence * 100)}%`;
-  marker.innerHTML = `<span></span><strong>${point.title}</strong>`;
-  marker.addEventListener("click", () => onSelectCase(point.id));
+  const marker = document.createElement("div");
+  marker.className = `amap-case-point${point.active ? " is-active" : ""}`;
+
+  const pin = document.createElement("button");
+  pin.type = "button";
+  pin.className = "amap-case-marker";
+  pin.setAttribute("aria-label", `查看案例：${point.title}`);
+  pin.title = `${point.title} · 位置置信度 ${Math.round(point.locationConfidence * 100)}%`;
+  const dot = document.createElement("span");
+  const label = document.createElement("strong");
+  label.textContent = point.title;
+  pin.append(dot, label);
+  pin.addEventListener("click", () => onSelectCase(point.id));
+  marker.append(pin);
+
+  if (point.active) {
+    const popup = document.createElement("button");
+    popup.type = "button";
+    popup.className = "amap-case-popup";
+    popup.setAttribute("aria-label", `打开完整案例：${point.title}`);
+
+    const eyebrow = document.createElement("span");
+    eyebrow.className = "amap-case-popup-eyebrow";
+    eyebrow.textContent = `${point.category} · ${point.province}${point.city}`;
+    const title = document.createElement("strong");
+    title.textContent = point.title;
+    const meta = document.createElement("span");
+    meta.className = "amap-case-popup-meta";
+    meta.textContent = `${point.locationLevel} · 位置置信度 ${Math.round(point.locationConfidence * 100)}%`;
+    const action = document.createElement("span");
+    action.className = "amap-case-popup-action";
+    action.textContent = point.benchmark ? "标杆样稿 · 查看案例 →" : "查看完整案例 →";
+    popup.append(eyebrow, title, meta, action);
+    popup.addEventListener("click", () => onSelectCase(point.id));
+    marker.append(popup);
+  }
+
   context.marker.setContent(marker);
   context.marker.setOffset(new AMap.Pixel(-14, -34));
 }

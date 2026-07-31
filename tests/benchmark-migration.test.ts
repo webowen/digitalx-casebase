@@ -2,19 +2,24 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   benchmarkCaseSlugs,
+  canApproveContentMigration,
   getMigrationSummary,
+  migrationBatchId,
 } from "../lib/benchmark-cases";
 import { buildCaseDocument } from "../lib/case-document";
 import { smartCityCases } from "../lib/mock-cases";
 
-test("migrates exactly three V1.4 cases without changing stable identities", () => {
+test("migrates all V1.4 cases while preserving three benchmark identities", () => {
   const summary = getMigrationSummary(smartCityCases);
   const benchmarks = smartCityCases.filter(
     (item) => item.contentMigration?.benchmark,
   );
 
-  assert.equal(summary.migrated, 3);
+  assert.equal(summary.total, 20);
+  assert.equal(summary.migrated, 20);
   assert.equal(summary.benchmarkDrafts, 3);
+  assert.equal(summary.batchMigrated, 17);
+  assert.equal(summary.pendingReview, 20);
   assert.equal(benchmarks.length, 3);
   assert.deepEqual(
     benchmarks.map((item) => item.slug).sort(),
@@ -24,6 +29,24 @@ test("migrates exactly three V1.4 cases without changing stable identities", () 
     benchmarks.map((item) => item.id).sort(),
     ["case-003", "case-004", "case-005"],
   );
+});
+
+test("batch migration moves the remaining cases to the native protocol without pretending approval", () => {
+  const migrated = smartCityCases.filter(
+    (item) => item.contentMigration?.batchId === migrationBatchId,
+  );
+
+  assert.equal(migrated.length, 17);
+  for (const item of migrated) {
+    assert.equal(item.contentMigration?.status, "migrated");
+    assert.equal(item.contentMigration?.reviewStatus, "pending");
+    assert.equal(item.contentModel?.generationMode, "native");
+    assert.equal(item.contentModel?.manualReviewStatus, "pending");
+    assert.equal(item.contentModel?.editorialSections.length, 7);
+    assert.equal(item.contentMigration?.reviewGates.length, 6);
+    assert.equal(canApproveContentMigration(item), false);
+    assert.match(item.contentMigration?.notes || "", /待后续批次完成/);
+  }
 });
 
 test("every benchmark case satisfies the native seven-part migration contract", () => {
@@ -65,5 +88,7 @@ test("benchmark drafts remain visibly pending human approval", () => {
         "案例尚未完成最终人工复核。",
       ),
     );
+    assert.equal(item.contentMigration?.reviewGates.length, 6);
+    assert.equal(canApproveContentMigration(item), false);
   }
 });
