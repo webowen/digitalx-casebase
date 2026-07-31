@@ -384,10 +384,7 @@ html {
 }
 
 .amap-case-popup {
-  position: absolute;
-  bottom: 46px;
-  left: 14px;
-  z-index: 30;
+  position: relative;
   display: flex;
   width: min(286px, calc(100vw - 48px));
   flex-direction: column;
@@ -399,8 +396,12 @@ html {
   color: #132b52;
   text-align: left;
   box-shadow: 0 16px 38px rgba(6, 45, 104, 0.2);
-  transform: translateX(-50%);
   backdrop-filter: blur(14px);
+}
+
+.amap-case-infowindow {
+  position: relative;
+  transform: translateY(-2px);
 }
 
 .amap-case-popup::after {

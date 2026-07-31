@@ -154,6 +154,14 @@ test("directory selection focuses the map before a POI opens the document", asyn
   assert.match(mapSource, /className = "amap-case-popup"/);
   assert.match(mapSource, /打开完整案例/);
   assert.match(mapSource, /popup\.addEventListener\("click"/);
+  assert.match(mapSource, /new AMap\.Marker\(/);
+  assert.match(mapSource, /new AMap\.InfoWindow\(/);
+  assert.match(mapSource, /clusterPoints = selectedPoint/);
+  assert.match(
+    mapSource,
+    /infoWindow\.open\(map, \[selectedPoint\.lng, selectedPoint\.lat\]\)/,
+  );
+  assert.match(mapSource, /anchor: "bottom-center"/);
   assert.match(source, /view", "document"/);
   assert.match(source, /aria-label="关闭案例文档遮罩"/);
   assert.match(source, /<CaseDocument item=\{activeSelectedCase\}/);
