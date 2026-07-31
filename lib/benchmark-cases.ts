@@ -17,9 +17,14 @@ import type {
   CaseScenario,
   SmartCityCase,
 } from "./case-model";
+import {
+  createBatchProductionProfile,
+  createBenchmarkProductionProfile,
+} from "./case-production";
 
 type BenchmarkDraft = {
   slug: string;
+  canonicalTitle: string;
   summary: string;
   owner: string;
   implementationUnit: string;
@@ -212,6 +217,7 @@ function migrateBenchmarkCase(
   };
   const enriched: SmartCityCase = {
     ...item,
+    title: draft.canonicalTitle,
     summary: draft.summary,
     owner: draft.owner,
     implementationUnit: draft.implementationUnit,
@@ -223,6 +229,19 @@ function migrateBenchmarkCase(
     sourceTitle: draft.sources[0]?.title,
     sourceNote:
       "V1.5 标杆样稿：正文依据公开权威来源编辑整理，事实、机构分工和指标口径仍需内容负责人终审。",
+    identity: {
+      canonicalTitle: draft.canonicalTitle,
+      candidates: [draft.canonicalTitle],
+      aliases: item.title === draft.canonicalTitle ? [] : [item.title],
+      confidence: 0.92,
+      needsReview: false,
+      reason: "已依据政府部门正式文件、采购材料和官方案例确认规范项目名称。",
+      evidence: draft.sources.slice(0, 2).map((source) => ({
+        title: source.title,
+        url: source.url,
+        quote: source.excerpt,
+      })),
+    },
     contentModel: {
       ...withoutQuality,
       quality: evaluateCaseQuality(
@@ -242,6 +261,7 @@ function migrateBenchmarkCase(
     },
     updatedAt: migratedAt,
   };
+  const production = createBenchmarkProductionProfile(enriched);
   return {
     ...enriched,
     contentMigration: {
@@ -259,6 +279,7 @@ function migrateBenchmarkCase(
         enriched.contentModel!,
         true,
       ),
+      production,
       notes: "已完成七部分原生内容迁移；保留原案例 ID、slug、地图位置与发布状态。",
     },
   };
@@ -266,6 +287,7 @@ function migrateBenchmarkCase(
 
 const guangzhou: BenchmarkDraft = {
   slug: "guangzhou-cim-platform",
+  canonicalTitle: "广州市城市信息模型（CIM）平台",
   summary:
     "广州以工程建设项目审批制度改革为业务入口，将三维电子报建、BIM、GIS 与城市基础空间数据汇聚到 CIM 基础平台，并逐步把能力延伸到规划审查、施工监管、城市更新和城市运行场景。这个案例的核心不是建设一张三维城市大屏，而是让统一空间底座进入建设管理的真实业务流程。",
   owner: "广州市住房和城乡建设主管部门",
@@ -420,6 +442,7 @@ const guangzhou: BenchmarkDraft = {
 
 const beijing: BenchmarkDraft = {
   slug: "beijing-urban-operation-command",
+  canonicalTitle: "北京市城市运行管理服务平台",
   summary:
     "北京以超大城市运行保障为目标，将网格事件、专业监管、运行监测和指挥调度组织成市、区、街道多级协同体系。“一网统管”的重点不是把所有系统合并成一个大屏，而是通过事件发现、分拨、处置、反馈和评价形成可追踪的治理闭环。",
   owner: "北京市城市管理相关主管部门",
@@ -455,6 +478,7 @@ const beijing: BenchmarkDraft = {
 
 const hangzhou: BenchmarkDraft = {
   slug: "hangzhou-city-brain-traffic",
+  canonicalTitle: "杭州城市大脑交通系统",
   summary:
     "杭州城市大脑以交通治理为早期突破口，把交通流、视频事件、信号控制和交警处置连接成感知—分析—控制—反馈闭环。其标杆意义不在“城市大脑”概念本身，而在于从可度量的高频场景切入，并用实际运行结果持续校准算法和治理流程。",
   owner: "杭州市城市治理与交通管理相关部门",
@@ -495,8 +519,108 @@ const hangzhou: BenchmarkDraft = {
   replicationConditions: ["选择边界清晰且可量化的交通场景。", "建立执行前基线和持续效果评估。", "保留人工干预、算法回退与多目标评价机制。"],
 };
 
+const benchmarkProductionSupplements: Record<
+  string,
+  Record<CaseContentSectionId, string>
+> = {
+  "guangzhou-cim-platform": {
+    project_overview:
+      "从案例研究角度看，广州CIM应被拆成“基础平台、数据治理、业务应用、制度标准”四个相互约束的部分。基础平台解决模型和空间数据的统一承载，数据治理解决成果能否持续入库和更新，业务应用检验平台是否进入审批与建设流程，制度标准则决定不同项目和承建单位能否按统一方式交付。四者缺一，平台都可能退化为阶段性展示工程。",
+    why_build:
+      "更深层的矛盾并不是缺少三维可视化，而是工程成果在法定审批、项目实施和城市管理之间缺少可延续的数据关系。设计模型如果只在汇报时使用，竣工后无法与建筑、地块、设施和责任主体关联，后续更新改造仍需重新测绘和建模。因而广州试点的价值在于探索把一次性项目成果转化为可复用城市数据资产的制度和技术路径。",
+    how_build:
+      "实施时还需要建立明确的数据准入与版本机制：申报模型先完成格式、坐标、完整性和属性检查，再由业务人员确认其是否满足审查和归档要求；通过后的成果记录项目、版本、提交单位和时间，并按权限向下游系统提供服务。这样才能回答“哪一版模型对应哪一次审批或竣工状态”，避免模型更新后丢失法律和业务语境。",
+    core_scenarios:
+      "评价具体场景时，应把“模型是否展示”改为“模型是否触发业务动作”。例如三维报建应能形成问题定位、修改意见和复核结果；施工监管应能把现场问题关联到构件、楼层和责任单位；竣工归档应能形成可检索、可追溯的最终成果。只有输入、判断、处置和结果回写都成立，才算形成了业务闭环。",
+    implementation_operation:
+      "持续运营还涉及新增项目接入、历史数据治理、标准升级、接口变更和用户培训。平台团队需要定期统计模型入库成功率、接口调用量、业务系统使用频次、问题闭环率和数据更新及时性，并据此决定哪些通用能力继续沉淀，哪些场景应由专业系统承担。运维评价不宜只使用模型总量、浏览次数或大屏上线数量。",
+    innovation_outcomes:
+      "现有公开资料更充分地证明了建设路径和应用方向，但对审批提速、成本降低、问题减少等实际成效披露有限。因此本案例把“形成统一空间底座、建立三维报建路径、支撑多类应用”作为已公开的机制性成果，把效率和经济效益列为待核验项。后续只有取得连续业务台账、前后对比口径或验收材料，才应把相关数字写入成效结论。",
+    lessons_boundaries:
+      "复制广州经验时，其他城市应先判断自身已有自然资源、住建审批、工程档案和城市运行系统的职责边界，再决定CIM承担哪些公共能力。建设顺序宜从一个责任清晰、数据可获得、结果可复核的业务切入，通过项目交付标准持续积累数据，而不是先追求全域高精度建模。对于没有持续数据来源和业务调用方的区域，应避免过度建模和重复建设。",
+  },
+  "beijing-urban-operation-command": {
+    project_overview:
+      "北京“一网统管”应理解为城市运行管理体系和数字平台的共同建设。平台汇聚城市体征、事件和专业领域信息，但真正决定效果的是市、区、街道以及行业部门之间如何分级发现、研判、调度和反馈。单纯把多个系统数据集中到驾驶舱，并不会自然形成统筹能力；必须同时明确事件分类、责任边界、升级条件和复核规则。",
+    why_build:
+      "超大城市运行问题往往跨越行政层级和专业部门。燃气、供热、地下管线、垃圾和道路等场景既有日常管理事项，也可能演变为跨部门风险。传统系统按部门建设后，事件口径、空间单元和处置状态难以统一，综合调度依赖电话和人工报表。建设一网统管的核心动因，是把分散信息转换为能够被组织体系共同理解和处理的运行事件。",
+    how_build:
+      "技术架构之外，还需要一套业务语义层：统一城市体征定义、事件编码、空间网格、主体目录和处置状态，并保留专业系统的原始业务责任。综合平台负责跨域监测、关联分析和调度监督，行业系统继续负责专业判断与执行。数据交换应明确更新频率、质量责任和回写字段，避免综合平台成为只进不出的数据汇聚终点。",
+    core_scenarios:
+      "以燃气安全为例，感知或业务数据形成风险线索后，系统需要判断影响范围和责任单位，必要时触发市区协同，专业人员完成现场核查和处置，再把结果、证据和复核状态回写。生活垃圾、建筑垃圾、供热和地下管线等场景虽然使用同一平台能力，但事件规则、处置时限和专业证据不同，不能用一套通用工单简单替代行业流程。",
+    implementation_operation:
+      "运营管理应同时维护平台和机制。除系统可用率、数据延迟等技术指标外，还要跟踪事件有效率、重复派单率、跨部门协同次数、超期原因和复核通过率。对于长期没有用户或无法形成处置结果的监测指标，应重新评估其必要性。场景上线也不等于治理完成，需要通过定期复盘调整事件规则、阈值和部门协同关系。",
+    innovation_outcomes:
+      "北京公开材料支持市、区、街道三级调度体系和多类专业场景建设，但尚不足以证明所有领域都实现了同等成熟度。本案例因此把制度体系、平台能力和已公开场景作为主要成果，把处置效率改善、风险降低和财政效益作为需要业务台账支撑的评价方向。不同年份、不同系统披露的数据不能直接合并为一个总体成效。",
+    lessons_boundaries:
+      "其他城市复制时，应优先建立城市运行事项清单和跨部门协同规则，再选择平台能力。城市规模较小或既有城运中心成熟的地区，不必照搬北京的层级结构，可以采用更轻量的事件中枢和专业系统联动方式。平台不能替代行业主管部门作专业判断，也不应把所有基层事项都上收为市级事件，否则会增加新的流转负担。",
+  },
+  "hangzhou-city-brain-traffic": {
+    project_overview:
+      "杭州交通案例的研究价值在于它把城市级数字化命题压缩到一个高频、可量化、可执行的业务系统中。交通流和事件是输入，算法分析是中间能力，信号调整、警力调度和线路优化是业务动作，速度、延误、到场时间和服务覆盖则构成结果反馈。这个链条比“建设城市大脑平台”更能解释项目为什么有效以及哪些能力可以复制。",
+    why_build:
+      "城市交通系统早已拥有大量摄像机、卡口和信号设备，但设备联网不等于形成治理能力。数据如果只在各自平台中展示，管理人员仍需人工切换系统、判断事件并协调处置。杭州选择交通作为突破口，是因为问题发生频繁、影响容易观察、控制动作相对明确，能够在较短周期内验证数据融合和算法决策是否真正改善业务。",
+    how_build:
+      "建设过程应区分实时运行链和离线优化链。实时链关注数据延迟、事件发现、信号控制和警情处置，要求稳定、可回退；离线链利用历史流量、客流和事件数据评估路口、线路和区域方案，允许更复杂的分析。两条链共享数据和指标，但责任、时效和风险不同。算法版本、策略下发和人工修改都应留痕，便于解释效果变化。",
+    core_scenarios:
+      "每个场景需要建立清晰基线。事件发现应比较人工发现与算法发现的时间、准确率和有效处置比例；信号优化应观察目标路口及相邻道路的延误变化，避免把拥堵转移；公交优化则应同时观察客流、换乘、覆盖和运营成本。只公布“优化了多少路口或线路”不足以说明效果，必须补充范围、周期和前后对照。",
+    implementation_operation:
+      "长期运营的核心工作包括设备健康监测、数据质量治理、算法漂移识别和跨机构协同。道路施工、天气、节假日和出行结构变化都会影响模型表现，历史上有效的策略可能需要重新校准。系统应允许交管人员查看算法依据、拒绝建议和快速回退，并把人工判断与最终结果作为后续评估和模型更新的重要输入。",
+    innovation_outcomes:
+      "早期公开指标证明系统在特定时间和范围内具备事件识别和处置提速能力，后续材料又展示了公交线网、接驳和路口优化等扩展成果。标杆案例不把这些数字混合成一个持续增长的总体结论，而是逐项保留来源、年份和应用范围。只有相同口径、连续周期的数据，才适合用于趋势分析和项目绩效评价。",
+    lessons_boundaries:
+      "复制杭州经验时，城市应从少量拥堵路口、快速路事件或公交接驳场景开始，先建立数据质量、业务动作和评估口径，再扩大算法和平台范围。交通优化具有明显外部性：机动车速度提高可能影响慢行安全，主路改善可能增加支路压力，因此评价体系需要包含多目标约束、公众影响和安全底线，而不能只追求单一通行速度。",
+  },
+};
+
+const benchmarkFinalProductionParagraphs: Record<string, string> = {
+  "guangzhou-cim-platform":
+    "对于采购和验收，建议把评价指标分成数据、服务和业务三组：数据侧检查模型准入率、属性完整率、更新及时性和版本可追溯性；服务侧检查接口可用率、响应性能、调用单位和复用次数；业务侧检查审查问题闭环、成果归档和下游场景调用。这样的指标体系能避免验收只关注软件功能清单，也能为后续运维费用、标准修订和场景扩展提供决策依据。现阶段公开材料尚不足以完整填入这些指标，因此应作为终审和后续实证调研清单保留。",
+  "beijing-urban-operation-command":
+    "从投资与实施角度看，一网统管不是一次性平台采购，而是持续的数据接入、场景配置和组织协同工程。新增一个专业场景通常需要梳理事件、数据、责任单位、处置时限、升级规则和复核证据，并完成接口与权限配置。因此应把场景上线数量与实际运行质量分开考核，建立退场和优化机制。对于长期低频、证据不足或无法形成闭环的场景，平台应允许下线或降级，而不是为了展示规模持续增加目录和指标。",
+  "hangzhou-city-brain-traffic":
+    "在项目投资与治理关系上，交通数字化不能只计算平台和算法采购费用，还应考虑感知设备维护、通信、信号控制改造、数据治理、算法评估和业务人员投入。若设备离线率高、基础配时不合理或处置流程没有同步调整，再强的模型也难以形成稳定收益。因此后续终审应尽可能补充建设范围、运维责任和持续成本，并把效率提升与安全、公平、隐私和可解释性放在同一评价框架中，避免把局部算法效果等同于整体城市治理成效。",
+};
+
+const benchmarkAdditionalReviewParagraphs: Partial<Record<string, string>> = {
+  "beijing-urban-operation-command":
+    "终审时还应把“城市运行监测平台”“城市运行管理服务平台”“一网统管应用体系”等相近名称逐一对应到文件年份、建设范围和责任单位，避免把连续迭代的多个采购项目误写成单一软件。正文可以将其作为同一治理体系的阶段性建设说明，但来源档案必须保留各项目边界。后续补充预算和绩效材料时，也应区分机构年度运行经费与具体平台建设费用，并记录不同年份功能迭代的对应关系，防止把体系建设概念与单次采购项目混为一谈，确保阅读者能够清晰追溯。",
+  "hangzhou-city-brain-traffic":
+    "项目身份核验同样要区分“城市大脑”总体体系、交通系统不同版本以及具体公交、信号和事件应用。案例标题采用能够代表持续交通治理体系的规范名称，正文中的每项指标则回到对应年份和应用范围，不把后续迭代成果追溯归因到早期单一版本。阅读者应能明确看出哪些是平台共性能力、哪些是某次专项优化的结果。",
+};
+
+function applyProductionSupplement(draft: BenchmarkDraft): BenchmarkDraft {
+  const supplement = benchmarkProductionSupplements[draft.slug];
+  if (!supplement) return draft;
+  return {
+    ...draft,
+    sections: Object.fromEntries(
+      Object.entries(draft.sections).map(([id, section]) => [
+        id,
+        {
+          ...section,
+          paragraphs: [
+            ...section.paragraphs,
+            supplement[id as CaseContentSectionId],
+            ...(id === "lessons_boundaries"
+              ? [
+                  benchmarkFinalProductionParagraphs[draft.slug],
+                  ...(benchmarkAdditionalReviewParagraphs[draft.slug]
+                    ? [benchmarkAdditionalReviewParagraphs[draft.slug]!]
+                    : []),
+                ]
+              : []),
+          ],
+        },
+      ]),
+    ) as BenchmarkDraft["sections"],
+  };
+}
+
 const drafts = new Map(
-  [guangzhou, beijing, hangzhou].map((draft) => [draft.slug, draft]),
+  [guangzhou, beijing, hangzhou]
+    .map(applyProductionSupplement)
+    .map((draft) => [draft.slug, draft]),
 );
 
 export const benchmarkCaseSlugs = Array.from(drafts.keys());
@@ -535,6 +659,7 @@ export function migrateBuiltInCases(cases: SmartCityCase[]): SmartCityCase[] {
         contentModel,
         updatedAt: migratedAt,
       };
+      const production = createBatchProductionProfile(migrated);
       return {
         ...migrated,
         contentMigration: {
@@ -548,6 +673,7 @@ export function migrateBuiltInCases(cases: SmartCityCase[]): SmartCityCase[] {
           sourceCount: contentModel.sources.length,
           substantiveSectionCount: contentModel.editorialSections.length,
           reviewGates: buildMigrationReviewGates(migrated, contentModel, false),
+          production,
           notes: "已完成七部分协议与数据结构迁移；内容扩写、证据补充、媒体配置和人工终审仍待后续批次完成。",
         },
       };
