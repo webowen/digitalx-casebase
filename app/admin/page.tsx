@@ -12,12 +12,14 @@ import {
   type CaseMediaCandidate,
   type CaseMediaKind,
   type CaseMediaPlanItem,
+  type CaseReviewGateId,
   type EvidenceLevel,
   type LocationLevel,
   type PublishStatus,
   type SmartCityCase,
 } from "@/lib/case-model";
 import { smartCityCases } from "@/lib/mock-cases";
+import { canApproveContentMigration } from "@/lib/benchmark-cases";
 import { createSlug, getLocalCases, removeLocalCase, saveLocalCase } from "@/lib/local-cases";
 import { extractPdfContent } from "@/lib/client-pdf-text";
 import {
@@ -257,13 +259,19 @@ export default function AdminPage() {
   const [parsing, setParsing] = useState(false);
   const [notice, setNotice] = useState("");
   const [errors, setErrors] = useState<string[]>([]);
+  const [manualMediaUrl, setManualMediaUrl] = useState("");
+  const [manualMediaCaption, setManualMediaCaption] = useState("");
+  const [addingMedia, setAddingMedia] = useState(false);
 
   useEffect(() => {
     const frame = window.requestAnimationFrame(() => setLocalCases(getLocalCases()));
     return () => window.cancelAnimationFrame(frame);
   }, []);
 
-  const combinedCases = useMemo(() => [...localCases, ...smartCityCases], [localCases]);
+  const combinedCases = useMemo(() => {
+    const localIds = new Set(localCases.map((item) => item.id));
+    return [...localCases, ...smartCityCases.filter((item) => !localIds.has(item.id))];
+  }, [localCases]);
   const health = useMemo(
     () => ({
       total: combinedCases.length,
@@ -498,6 +506,95 @@ export default function AdminPage() {
     }));
   }
 
+  function updateMigrationReviewGate(
+    gateId: CaseReviewGateId,
+    status: "needs_work" | "approved",
+  ) {
+    setCaseItem((current) => {
+      if (!current.contentMigration) return current;
+      return {
+        ...current,
+        contentMigration: {
+          ...current.contentMigration,
+          reviewStatus: "in_review",
+          reviewGates: current.contentMigration.reviewGates.map((gate) =>
+            gate.id === gateId
+              ? {
+                  ...gate,
+                  status,
+                  issueCount: status === "approved" ? 0 : Math.max(1, gate.issueCount),
+                }
+              : gate,
+          ),
+        },
+        updatedAt: new Date().toISOString(),
+      };
+    });
+  }
+
+  async function addManualMediaEvidence() {
+    const url = manualMediaUrl.trim();
+    const caption = manualMediaCaption.trim();
+    if (!caseItem.title.trim()) {
+      setErrors(["请先选择或创建案例，再补充图片证据。"]);
+      return;
+    }
+    if (!/^https?:\/\//i.test(url) || !caption) {
+      setErrors(["请填写完整的 http(s) 图片地址和图注。"]);
+      return;
+    }
+
+    setAddingMedia(true);
+    setErrors([]);
+    try {
+      const candidateId = `manual-${Date.now()}`;
+      const response = await fetch("/api/media/import-web", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          url,
+          caseId: caseItem.id || caseItem.slug || "draft",
+          candidateId,
+        }),
+      });
+      const payload = (await response.json().catch(() => null)) as
+        | { url?: string; error?: string }
+        | null;
+      if (!response.ok || !payload?.url) {
+        throw new Error(payload?.error || "图片证据导入失败。");
+      }
+      const asset: CaseMediaAsset = {
+        id: `${candidateId}-asset`,
+        candidateId,
+        kind: "other",
+        sectionId: "overview",
+        caption,
+        alt: caption,
+        confidence: 1,
+        needsReview: true,
+        reason: "由内容负责人补充的网页图片，仍需核对版权、来源、图注与插入章节。",
+        url: payload.url,
+        sourceKind: "web_image",
+        sourceUrl: url,
+        pageNumber: 0,
+        included: true,
+        reviewed: false,
+      };
+      setCaseItem((current) => ({
+        ...current,
+        media: [...(current.media || []), asset],
+        updatedAt: new Date().toISOString(),
+      }));
+      setManualMediaUrl("");
+      setManualMediaCaption("");
+      setNotice("图片已保存为证据候选；发布前请核对来源、图注和插入章节。");
+    } catch (error) {
+      setErrors([error instanceof Error ? error.message : "图片证据导入失败。"]);
+    } finally {
+      setAddingMedia(false);
+    }
+  }
+
   function validateForPublish(item: SmartCityCase) {
     const next: string[] = [];
     if (!item.title.trim()) next.push("案例名称不能为空。");
@@ -530,6 +627,9 @@ export default function AdminPage() {
         next.push(`案例规范质量评分为 ${item.contentModel.quality.score}/100，达到70分后才可发布。`);
       }
     }
+    if (item.contentMigration && !canApproveContentMigration(item)) {
+      next.push("V1.5 内容迁移的六项终审门槛尚未全部批准。");
+    }
     setErrors(next);
     return next.length === 0;
   }
@@ -546,11 +646,22 @@ export default function AdminPage() {
         ? approveCaseContentModel(caseItem)
         : normalizeCaseContentModel(caseItem);
     if (status === "已发布" && !validateForPublish(normalized)) return;
+    const migrationApproved =
+      status === "已发布" &&
+      normalized.contentMigration &&
+      canApproveContentMigration(normalized);
     const item: SmartCityCase = {
       ...normalized,
       id: caseItem.id || `local-${Date.now()}`,
       slug: caseItem.slug || createSlug(caseItem.title),
       status,
+      contentMigration: normalized.contentMigration
+        ? {
+            ...normalized.contentMigration,
+            status: migrationApproved ? "approved" : normalized.contentMigration.status,
+            reviewStatus: migrationApproved ? "approved" : normalized.contentMigration.reviewStatus,
+          }
+        : undefined,
       importedAt: caseItem.importedAt || now,
       updatedAt: now,
     };
@@ -580,6 +691,8 @@ export default function AdminPage() {
     setAssessments([]);
     setReviewItems([]);
     setParseMeta(null);
+    setManualMediaUrl("");
+    setManualMediaCaption("");
     setResearchMode(true);
     setStepIndex(item.status === "已发布" ? 4 : item.status === "待复核" ? 3 : 2);
     setNotice(`正在编辑：${item.title}`);
@@ -1037,7 +1150,7 @@ export default function AdminPage() {
                 </section>
               )}
 
-              {(caseItem.media || []).length > 0 && (
+              {caseItem.title.trim() && (
                 <section className="rounded border border-slate-200 bg-white p-4">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div>
@@ -1050,6 +1163,39 @@ export default function AdminPage() {
                       {(caseItem.media || []).filter((asset) => asset.included).length} / {caseItem.media?.length} 张入选
                     </span>
                   </div>
+                  <div className="mt-4 grid gap-2 rounded border border-sky-100 bg-sky-50/60 p-3 lg:grid-cols-[1fr_1fr_auto]">
+                    <label>
+                      <span className="text-[11px] font-medium text-slate-600">网页原图地址</span>
+                      <input
+                        value={manualMediaUrl}
+                        onChange={(event) => setManualMediaUrl(event.target.value)}
+                        placeholder="https://…/platform-dashboard.jpg"
+                        className="admin-input mt-1 bg-white"
+                      />
+                    </label>
+                    <label>
+                      <span className="text-[11px] font-medium text-slate-600">图片图注</span>
+                      <input
+                        value={manualMediaCaption}
+                        onChange={(event) => setManualMediaCaption(event.target.value)}
+                        placeholder="说明画面内容、时间与来源"
+                        className="admin-input mt-1 bg-white"
+                      />
+                    </label>
+                    <button
+                      type="button"
+                      disabled={addingMedia}
+                      onClick={addManualMediaEvidence}
+                      className="self-end rounded bg-sky-700 px-3 py-2 text-xs font-semibold text-white disabled:opacity-50"
+                    >
+                      {addingMedia ? "正在保存…" : "加入证据候选"}
+                    </button>
+                  </div>
+                  {(caseItem.media || []).length === 0 && (
+                    <p className="mt-3 rounded border border-dashed border-slate-200 p-3 text-xs leading-5 text-slate-500">
+                      当前没有图片证据。可从权威网页补充平台界面、驾驶舱、架构图或现场图片；系统会保存原始地址，且必须人工核对后才能发布。
+                    </p>
+                  )}
                   <div className="mt-4 grid gap-4 xl:grid-cols-2">
                     {caseItem.media?.map((asset, index) => (
                       <article
@@ -1312,6 +1458,52 @@ export default function AdminPage() {
                     )}
                   </div>
                 )}
+                {caseItem.contentMigration && (
+                  <div className="rounded border border-cyan-200 bg-cyan-50/50 p-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <div className="text-xs font-semibold text-cyan-950">V1.5 内容终审门槛</div>
+                        <div className="mt-0.5 text-[10px] text-cyan-700">
+                          {caseItem.contentMigration.batchId} · {caseItem.contentMigration.benchmark ? "标杆案例" : "批量迁移案例"}
+                        </div>
+                      </div>
+                      <span className="rounded bg-white px-2 py-1 text-[10px] font-semibold text-cyan-800">
+                        {caseItem.contentMigration.reviewGates.filter((gate) => gate.status === "approved").length}/6 已批准
+                      </span>
+                    </div>
+                    <div className="mt-3 space-y-2">
+                      {caseItem.contentMigration.reviewGates.map((gate) => (
+                        <div key={gate.id} className="rounded border border-cyan-100 bg-white p-2.5">
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <div className="text-[11px] font-semibold text-slate-700">{gate.label}</div>
+                              <div className="mt-0.5 text-[10px] leading-4 text-slate-500">{gate.note}</div>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                updateMigrationReviewGate(
+                                  gate.id,
+                                  gate.status === "approved" ? "needs_work" : "approved",
+                                )
+                              }
+                              className={`shrink-0 rounded px-2 py-1 text-[10px] font-semibold ${
+                                gate.status === "approved"
+                                  ? "bg-emerald-100 text-emerald-700"
+                                  : "bg-amber-100 text-amber-800"
+                              }`}
+                            >
+                              {gate.status === "approved" ? "已批准" : `待处理 ${gate.issueCount || ""}`}
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    <p className="mt-2 text-[10px] leading-4 text-cyan-800">
+                      六项门槛全部批准后才能形成 approved 版本；按钮代表内容负责人已完成核对，不由 AI 自动代签。
+                    </p>
+                  </div>
+                )}
                 {parseMeta && (
                   <div className="rounded bg-slate-50 p-2.5 text-[11px] leading-5 text-slate-500">
                     本次调用：输入 {parseMeta.inputTokens.toLocaleString()} tokens · 输出 {parseMeta.outputTokens.toLocaleString()} tokens
@@ -1409,6 +1601,63 @@ export default function AdminPage() {
           </aside>
         </div>
 
+        <section className="mt-5 rounded border border-cyan-200 bg-gradient-to-r from-sky-50 to-cyan-50 shadow-sm">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-cyan-100 px-5 py-4">
+            <div>
+              <p className="text-xs font-semibold text-cyan-700">V1.5.0-alpha.4｜标杆终审</p>
+              <h2 className="mt-1 text-lg font-semibold text-slate-900">三份标杆案例审核队列</h2>
+              <p className="mt-1 text-xs text-slate-500">AI 已完成结构化样稿；内容负责人需逐项确认身份、来源、陈述、指标、媒体与正文。</p>
+            </div>
+            <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-cyan-800 shadow-sm">
+              3 份标杆 · 6 项门槛
+            </span>
+          </div>
+          <div className="grid gap-3 p-4 lg:grid-cols-3">
+            {combinedCases.filter((item) => item.contentMigration?.benchmark).map((item) => {
+              const approved = item.contentMigration?.reviewGates.filter((gate) => gate.status === "approved").length || 0;
+              return (
+                <article key={item.id} className="rounded border border-cyan-100 bg-white p-4">
+                  <div className="text-[10px] font-semibold uppercase tracking-wide text-cyan-700">
+                    {item.city} · {item.category}
+                  </div>
+                  <h3 className="mt-1 line-clamp-2 text-sm font-semibold leading-6 text-slate-900">{item.title}</h3>
+                  <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-slate-100">
+                    <div className="h-full rounded-full bg-gradient-to-r from-blue-600 to-cyan-400" style={{ width: `${(approved / 6) * 100}%` }} />
+                  </div>
+                  <div className="mt-2 flex items-center justify-between text-[11px] text-slate-500">
+                    <span>{approved}/6 门槛已批准</span>
+                    <span>{item.contentModel?.sources.length || 0} 来源</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => editCase(item)}
+                    className="mt-3 w-full rounded border border-cyan-200 px-3 py-2 text-xs font-semibold text-cyan-800 hover:bg-cyan-50"
+                  >
+                    进入终审工作台
+                  </button>
+                </article>
+              );
+            })}
+          </div>
+        </section>
+
+        <section className="mt-5 rounded border border-indigo-200 bg-white px-5 py-4 shadow-sm">
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div>
+              <p className="text-xs font-semibold text-indigo-700">V1.5.0-alpha.5｜批量迁移</p>
+              <h2 className="mt-1 text-lg font-semibold text-slate-900">20 / 20 案例已进入原生七章协议</h2>
+              <p className="mt-1 text-xs leading-5 text-slate-500">
+                3 份标杆案例进入终审；其余 17 份已完成数据结构迁移，但仍明确标记为待扩写、待补证据和待审核。
+              </p>
+            </div>
+            <div className="grid grid-cols-3 gap-2 text-center">
+              <div className="rounded bg-indigo-50 px-3 py-2"><strong className="block text-lg text-indigo-800">20</strong><span className="text-[10px] text-slate-500">协议迁移</span></div>
+              <div className="rounded bg-cyan-50 px-3 py-2"><strong className="block text-lg text-cyan-800">3</strong><span className="text-[10px] text-slate-500">标杆终审</span></div>
+              <div className="rounded bg-amber-50 px-3 py-2"><strong className="block text-lg text-amber-800">17</strong><span className="text-[10px] text-slate-500">待内容增强</span></div>
+            </div>
+          </div>
+        </section>
+
         <section className="ledger-panel mt-5 rounded border border-slate-200 bg-white shadow-sm">
           <div className="flex items-center justify-between border-b border-slate-200 px-5 py-3">
             <div>
@@ -1422,8 +1671,8 @@ export default function AdminPage() {
               <div className="grid grid-cols-[minmax(300px,1.5fr)_140px_120px_110px_120px] bg-slate-50 px-5 py-2.5 text-xs font-medium text-slate-500">
                 <span>案例名称</span><span>地区 / 年份</span><span>分类</span><span>状态</span><span>操作</span>
               </div>
-              {combinedCases.slice(0, 14).map((item) => {
-                const isLocal = item.id.startsWith("local-");
+              {combinedCases.map((item) => {
+                const isLocal = localCases.some((local) => local.id === item.id);
                 return (
                   <div key={item.id} className="grid grid-cols-[minmax(300px,1.5fr)_140px_120px_110px_120px] items-center border-t border-slate-100 px-5 py-3 text-sm">
                     <span className="min-w-0 pr-5">
@@ -1439,6 +1688,10 @@ export default function AdminPage() {
                           <button onClick={() => editCase(item)} className="text-xs font-medium text-teal-700 hover:underline">编辑</button>
                           <button onClick={() => deleteCase(item.id)} className="text-xs text-slate-400 hover:text-red-600">删除</button>
                         </>
+                      ) : item.contentMigration ? (
+                        <button onClick={() => editCase(item)} className="text-xs font-medium text-cyan-700 hover:underline">
+                          {item.contentMigration.benchmark ? "进入终审" : "审核迁移"}
+                        </button>
                       ) : (
                         <Link href={`/cases/${item.slug}`} className="text-xs text-slate-500 hover:text-teal-700">查看</Link>
                       )}
