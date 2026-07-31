@@ -44,6 +44,8 @@ test("batch migration moves the remaining cases to the native protocol without p
     assert.equal(item.contentModel?.manualReviewStatus, "pending");
     assert.equal(item.contentModel?.editorialSections.length, 7);
     assert.equal(item.contentMigration?.reviewGates.length, 6);
+    assert.equal(item.contentMigration?.production?.release, "V1.5.0-beta.2");
+    assert.equal(item.contentMigration?.production?.stage, "queued");
     assert.equal(canApproveContentMigration(item), false);
     assert.match(item.contentMigration?.notes || "", /待后续批次完成/);
   }
@@ -63,6 +65,8 @@ test("every benchmark case satisfies the native seven-part migration contract", 
     assert.equal(migration?.status, "benchmark_draft");
     assert.equal(migration?.reviewStatus, "in_review");
     assert.equal(migration?.substantiveSectionCount, 7);
+    assert.equal(migration?.production?.release, "V1.5.0-beta.1");
+    assert.equal(migration?.production?.stage, "final_review");
     assert.equal(content?.generationMode, "native");
     assert.equal(content?.contentLevel, "deep");
     assert.equal(content?.editorialSections.length, 7);
@@ -89,6 +93,7 @@ test("benchmark drafts remain visibly pending human approval", () => {
       ),
     );
     assert.equal(item.contentMigration?.reviewGates.length, 6);
+    assert.equal(item.contentMigration?.production?.release, "V1.5.0-beta.1");
     assert.equal(canApproveContentMigration(item), false);
   }
 });

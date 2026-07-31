@@ -184,7 +184,34 @@ export type CaseContentMigration = {
   sourceCount: number;
   substantiveSectionCount: number;
   reviewGates: CaseReviewGate[];
+  production?: CaseProductionProfile;
   notes: string;
+};
+
+export type CaseProductionStage =
+  | "queued"
+  | "researching"
+  | "evidence_ready"
+  | "draft_ready"
+  | "quality_review"
+  | "final_review"
+  | "approved"
+  | "blocked";
+
+export type CaseProductionPriority = "P0" | "P1" | "P2";
+
+export type CaseProductionProfile = {
+  release: "V1.5.0-beta.1" | "V1.5.0-beta.2";
+  waveId: string;
+  waveLabel: string;
+  priority: CaseProductionPriority;
+  stage: CaseProductionStage;
+  ownerRole: string;
+  targetSourceCount: number;
+  targetCharacterCount: number;
+  nextAction: string;
+  rationale: string;
+  lastAdvancedAt: string;
 };
 
 export type CaseReviewGateId =
@@ -201,6 +228,8 @@ export type CaseReviewGate = {
   status: "pending" | "needs_work" | "approved";
   issueCount: number;
   note: string;
+  approvedAt?: string;
+  reviewer?: string;
 };
 
 export type CasePipelineStageId =

@@ -39,6 +39,13 @@ import {
   approveCaseContentModel,
   normalizeCaseContentModel,
 } from "@/lib/case-content-model";
+import {
+  advanceProduction,
+  canAdvanceProduction,
+  productionReadiness,
+  productionStageLabels,
+} from "@/lib/case-production";
+import { ContentProductionBoard } from "@/components/content-production-board";
 
 type ImportMode = "网页链接" | "粘贴原文" | "本地文件";
 type WorkflowStep = "导入资料" | "AI解析" | "人工复核" | "位置确认" | "发布入库";
@@ -523,6 +530,8 @@ export default function AdminPage() {
                   ...gate,
                   status,
                   issueCount: status === "approved" ? 0 : Math.max(1, gate.issueCount),
+                  approvedAt: status === "approved" ? new Date().toISOString() : undefined,
+                  reviewer: status === "approved" ? "内容负责人" : undefined,
                 }
               : gate,
           ),
@@ -530,6 +539,23 @@ export default function AdminPage() {
         updatedAt: new Date().toISOString(),
       };
     });
+  }
+
+  function advanceCurrentProduction() {
+    const check = canAdvanceProduction(caseItem);
+    if (!check.allowed) {
+      setErrors([check.reason]);
+      return;
+    }
+    const next = advanceProduction(caseItem);
+    setCaseItem(next);
+    setLocalCases(saveLocalCase(next));
+    setErrors([]);
+    setNotice(
+      `案例已推进至“${
+        productionStageLabels[next.contentMigration?.production?.stage || "queued"]
+      }”，进度保存在当前浏览器。`,
+    );
   }
 
   async function addManualMediaEvidence() {
@@ -1502,6 +1528,59 @@ export default function AdminPage() {
                     <p className="mt-2 text-[10px] leading-4 text-cyan-800">
                       六项门槛全部批准后才能形成 approved 版本；按钮代表内容负责人已完成核对，不由 AI 自动代签。
                     </p>
+                    {caseItem.contentMigration.production && (() => {
+                      const production = caseItem.contentMigration.production;
+                      const readiness = productionReadiness(caseItem);
+                      const advance = canAdvanceProduction(caseItem);
+                      return (
+                        <div className="mt-3 rounded border border-cyan-100 bg-white p-3">
+                          <div className="flex items-center justify-between gap-2">
+                            <div>
+                              <div className="text-[10px] font-semibold text-cyan-900">
+                                {production.release} · {production.waveLabel}
+                              </div>
+                              <div className="mt-1 text-xs font-semibold text-slate-800">
+                                {productionStageLabels[production.stage]}
+                              </div>
+                            </div>
+                            <span className="rounded bg-slate-100 px-2 py-1 text-[10px] font-bold text-slate-600">
+                              {production.priority}
+                            </span>
+                          </div>
+                          <div className="mt-2 grid grid-cols-3 gap-2 text-center">
+                            <div className="rounded bg-slate-50 p-2">
+                              <strong className="block text-xs">{readiness.sourceCount}/{production.targetSourceCount}</strong>
+                              <span className="text-[9px] text-slate-500">来源</span>
+                            </div>
+                            <div className="rounded bg-slate-50 p-2">
+                              <strong className="block text-xs">{readiness.characters}/{production.targetCharacterCount}</strong>
+                              <span className="text-[9px] text-slate-500">正文</span>
+                            </div>
+                            <div className="rounded bg-slate-50 p-2">
+                              <strong className="block text-xs">{readiness.qualityScore}</strong>
+                              <span className="text-[9px] text-slate-500">质量分</span>
+                            </div>
+                          </div>
+                          <p className="mt-2 text-[10px] leading-4 text-slate-600">
+                            下一步：{production.nextAction}
+                          </p>
+                          {!advance.allowed && (
+                            <p className="mt-2 rounded bg-amber-50 px-2 py-1.5 text-[10px] leading-4 text-amber-800">
+                              当前阻断：{advance.reason}
+                            </p>
+                          )}
+                          {production.stage !== "approved" && (
+                            <button
+                              type="button"
+                              onClick={advanceCurrentProduction}
+                              className="mt-2 w-full rounded border border-cyan-200 px-3 py-2 text-[11px] font-semibold text-cyan-800 hover:bg-cyan-50"
+                            >
+                              推进到下一生产阶段
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })()}
                   </div>
                 )}
                 {parseMeta && (
@@ -1601,62 +1680,7 @@ export default function AdminPage() {
           </aside>
         </div>
 
-        <section className="mt-5 rounded border border-cyan-200 bg-gradient-to-r from-sky-50 to-cyan-50 shadow-sm">
-          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-cyan-100 px-5 py-4">
-            <div>
-              <p className="text-xs font-semibold text-cyan-700">V1.5.0-alpha.4｜标杆终审</p>
-              <h2 className="mt-1 text-lg font-semibold text-slate-900">三份标杆案例审核队列</h2>
-              <p className="mt-1 text-xs text-slate-500">AI 已完成结构化样稿；内容负责人需逐项确认身份、来源、陈述、指标、媒体与正文。</p>
-            </div>
-            <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-cyan-800 shadow-sm">
-              3 份标杆 · 6 项门槛
-            </span>
-          </div>
-          <div className="grid gap-3 p-4 lg:grid-cols-3">
-            {combinedCases.filter((item) => item.contentMigration?.benchmark).map((item) => {
-              const approved = item.contentMigration?.reviewGates.filter((gate) => gate.status === "approved").length || 0;
-              return (
-                <article key={item.id} className="rounded border border-cyan-100 bg-white p-4">
-                  <div className="text-[10px] font-semibold uppercase tracking-wide text-cyan-700">
-                    {item.city} · {item.category}
-                  </div>
-                  <h3 className="mt-1 line-clamp-2 text-sm font-semibold leading-6 text-slate-900">{item.title}</h3>
-                  <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-slate-100">
-                    <div className="h-full rounded-full bg-gradient-to-r from-blue-600 to-cyan-400" style={{ width: `${(approved / 6) * 100}%` }} />
-                  </div>
-                  <div className="mt-2 flex items-center justify-between text-[11px] text-slate-500">
-                    <span>{approved}/6 门槛已批准</span>
-                    <span>{item.contentModel?.sources.length || 0} 来源</span>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => editCase(item)}
-                    className="mt-3 w-full rounded border border-cyan-200 px-3 py-2 text-xs font-semibold text-cyan-800 hover:bg-cyan-50"
-                  >
-                    进入终审工作台
-                  </button>
-                </article>
-              );
-            })}
-          </div>
-        </section>
-
-        <section className="mt-5 rounded border border-indigo-200 bg-white px-5 py-4 shadow-sm">
-          <div className="flex flex-wrap items-center justify-between gap-4">
-            <div>
-              <p className="text-xs font-semibold text-indigo-700">V1.5.0-alpha.5｜批量迁移</p>
-              <h2 className="mt-1 text-lg font-semibold text-slate-900">20 / 20 案例已进入原生七章协议</h2>
-              <p className="mt-1 text-xs leading-5 text-slate-500">
-                3 份标杆案例进入终审；其余 17 份已完成数据结构迁移，但仍明确标记为待扩写、待补证据和待审核。
-              </p>
-            </div>
-            <div className="grid grid-cols-3 gap-2 text-center">
-              <div className="rounded bg-indigo-50 px-3 py-2"><strong className="block text-lg text-indigo-800">20</strong><span className="text-[10px] text-slate-500">协议迁移</span></div>
-              <div className="rounded bg-cyan-50 px-3 py-2"><strong className="block text-lg text-cyan-800">3</strong><span className="text-[10px] text-slate-500">标杆终审</span></div>
-              <div className="rounded bg-amber-50 px-3 py-2"><strong className="block text-lg text-amber-800">17</strong><span className="text-[10px] text-slate-500">待内容增强</span></div>
-            </div>
-          </div>
-        </section>
+        <ContentProductionBoard cases={combinedCases} onEdit={editCase} />
 
         <section className="ledger-panel mt-5 rounded border border-slate-200 bg-white shadow-sm">
           <div className="flex items-center justify-between border-b border-slate-200 px-5 py-3">
