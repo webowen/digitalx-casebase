@@ -177,12 +177,30 @@ export type CaseContentMigration = {
   protocolVersion: "1.0";
   status: "legacy" | "migrated" | "benchmark_draft" | "approved";
   benchmark: boolean;
+  batchId: string;
   migratedAt: string;
   migratedFrom: "v1.4";
   reviewStatus: "pending" | "in_review" | "approved";
   sourceCount: number;
   substantiveSectionCount: number;
+  reviewGates: CaseReviewGate[];
   notes: string;
+};
+
+export type CaseReviewGateId =
+  | "identity"
+  | "sources"
+  | "claims"
+  | "metrics"
+  | "media"
+  | "editorial";
+
+export type CaseReviewGate = {
+  id: CaseReviewGateId;
+  label: string;
+  status: "pending" | "needs_work" | "approved";
+  issueCount: number;
+  note: string;
 };
 
 export type CasePipelineStageId =
