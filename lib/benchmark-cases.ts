@@ -1,4 +1,7 @@
-import { evaluateCaseQuality } from "./case-content-model";
+import {
+  evaluateCaseQuality,
+  normalizeCaseContentModel,
+} from "./case-content-model";
 import {
   caseDocumentSectionOrder,
   caseDocumentSectionTitles,
@@ -9,6 +12,8 @@ import type {
   CaseContentSectionId,
   CaseContentSource,
   CaseMetric,
+  CaseReviewGate,
+  CaseReviewGateId,
   CaseScenario,
   SmartCityCase,
 } from "./case-model";
@@ -35,6 +40,84 @@ type BenchmarkDraft = {
 };
 
 const migratedAt = "2026-07-31T00:00:00.000Z";
+export const migrationBatchId = "v1.5-alpha5-batch-01";
+
+const reviewGateLabels: Record<CaseReviewGateId, string> = {
+  identity: "项目身份与正式名称",
+  sources: "来源可追溯性",
+  claims: "关键陈述与证据",
+  metrics: "量化指标与口径",
+  media: "图片证据与图注",
+  editorial: "七章正文终审",
+};
+
+export function buildMigrationReviewGates(
+  item: SmartCityCase,
+  content: CaseContentModel,
+  benchmark: boolean,
+): CaseReviewGate[] {
+  const issues: Record<CaseReviewGateId, { count: number; note: string }> = {
+    identity: {
+      count: item.identity?.needsReview === false ? 0 : 1,
+      note: item.identity?.needsReview === false
+        ? "正式名称已有证据支撑，仍保留人工终审记录。"
+        : "需人工核验正式项目名称、别名与建设范围。",
+    },
+    sources: {
+      count: Math.max(0, 2 - content.sources.length),
+      note: content.sources.length >= 2
+        ? `已关联 ${content.sources.length} 个来源，需逐项确认出版物与链接。`
+        : "至少补充两个可追溯来源。",
+    },
+    claims: {
+      count: content.claims.filter(
+        (claim) => claim.sourceIds.length === 0 || claim.conflict.trim(),
+      ).length,
+      note: "核验关键陈述、来源引用和潜在冲突。",
+    },
+    metrics: {
+      count: content.metrics.length === 0
+        ? 1
+        : content.metrics.filter(
+            (metric) => metric.sourceIds.length === 0 || !metric.reviewed,
+          ).length,
+      note: content.metrics.length
+        ? "核验指标周期、基线、单位和原始来源口径。"
+        : "公开材料暂未形成可核验指标，需补充或明确未披露。",
+    },
+    media: {
+      count: Math.max(
+        1,
+        (item.media || []).filter(
+          (media) => media.included && (!media.reviewed || !media.caption.trim()),
+        ).length,
+      ),
+      note: "至少配置一张经人工核对的图片证据、来源和图注。",
+    },
+    editorial: {
+      count: content.editorialSections.length === 7 ? 1 : 7 - content.editorialSections.length,
+      note: "内容负责人需逐章确认主次结构、表达和事实边界。",
+    },
+  };
+
+  return (Object.keys(reviewGateLabels) as CaseReviewGateId[]).map((id) => ({
+    id,
+    label: reviewGateLabels[id],
+    status:
+      issues[id].count === 0 && benchmark && ["identity", "sources"].includes(id)
+        ? "approved"
+        : issues[id].count > 0
+          ? "needs_work"
+          : "pending",
+    issueCount: Math.max(0, issues[id].count),
+    note: issues[id].note,
+  }));
+}
+
+export function canApproveContentMigration(item: SmartCityCase) {
+  const gates = item.contentMigration?.reviewGates || [];
+  return gates.length === 6 && gates.every((gate) => gate.status === "approved");
+}
 
 function source(
   id: string,
@@ -140,17 +223,6 @@ function migrateBenchmarkCase(
     sourceTitle: draft.sources[0]?.title,
     sourceNote:
       "V1.5 标杆样稿：正文依据公开权威来源编辑整理，事实、机构分工和指标口径仍需内容负责人终审。",
-    contentMigration: {
-      protocolVersion: "1.0",
-      status: "benchmark_draft",
-      benchmark: true,
-      migratedAt,
-      migratedFrom: "v1.4",
-      reviewStatus: "in_review",
-      sourceCount: draft.sources.length,
-      substantiveSectionCount: editorialSections.length,
-      notes: "已完成七部分原生内容迁移；保留原案例 ID、slug、地图位置与发布状态。",
-    },
     contentModel: {
       ...withoutQuality,
       quality: evaluateCaseQuality(
@@ -170,7 +242,26 @@ function migrateBenchmarkCase(
     },
     updatedAt: migratedAt,
   };
-  return enriched;
+  return {
+    ...enriched,
+    contentMigration: {
+      protocolVersion: "1.0",
+      status: "benchmark_draft",
+      benchmark: true,
+      batchId: "v1.5-alpha4-benchmark-review",
+      migratedAt,
+      migratedFrom: "v1.4",
+      reviewStatus: "in_review",
+      sourceCount: draft.sources.length,
+      substantiveSectionCount: editorialSections.length,
+      reviewGates: buildMigrationReviewGates(
+        enriched,
+        enriched.contentModel!,
+        true,
+      ),
+      notes: "已完成七部分原生内容迁移；保留原案例 ID、slug、地图位置与发布状态。",
+    },
+  };
 }
 
 const guangzhou: BenchmarkDraft = {
@@ -414,18 +505,50 @@ export function migrateBuiltInCases(cases: SmartCityCase[]): SmartCityCase[] {
   return cases.map((item) => {
     const draft = drafts.get(item.slug);
     if (!draft) {
+      const normalized = normalizeCaseContentModel(item);
+      const previousContent = normalized.contentModel!;
+      const editorialSections = caseDocumentSectionOrder.map(
+        (id) =>
+          previousContent.editorialSections.find((section) => section.id === id) || {
+            id,
+            title: caseDocumentSectionTitles[id],
+            summary: "",
+            paragraphs: [],
+            points: [],
+            claimIds: [],
+            mediaIds: [],
+          },
+      );
+      const { quality: previousQuality, ...reviewInput } = {
+        ...previousContent,
+        editorialSections,
+        generationMode: "native" as const,
+        manualReviewStatus: "pending" as const,
+      };
+      void previousQuality;
+      const contentModel: CaseContentModel = {
+        ...reviewInput,
+        quality: evaluateCaseQuality(normalized, reviewInput),
+      };
+      const migrated: SmartCityCase = {
+        ...normalized,
+        contentModel,
+        updatedAt: migratedAt,
+      };
       return {
-        ...item,
+        ...migrated,
         contentMigration: {
           protocolVersion: "1.0",
-          status: "legacy",
+          status: "migrated",
           benchmark: false,
-          migratedAt: "",
+          batchId: migrationBatchId,
+          migratedAt,
           migratedFrom: "v1.4",
           reviewStatus: "pending",
-          sourceCount: item.researchSources?.length || (item.sourceUrl ? 1 : 0),
-          substantiveSectionCount: 0,
-          notes: "尚未进入 V1.5 原生七部分内容迁移。",
+          sourceCount: contentModel.sources.length,
+          substantiveSectionCount: contentModel.editorialSections.length,
+          reviewGates: buildMigrationReviewGates(migrated, contentModel, false),
+          notes: "已完成七部分协议与数据结构迁移；内容扩写、证据补充、媒体配置和人工终审仍待后续批次完成。",
         },
       };
     }
@@ -445,6 +568,12 @@ export function getMigrationSummary(cases: SmartCityCase[]) {
     ).length,
     approved: migrated.filter(
       (item) => item.contentMigration?.status === "approved",
+    ).length,
+    pendingReview: migrated.filter(
+      (item) => item.contentMigration?.reviewStatus !== "approved",
+    ).length,
+    batchMigrated: migrated.filter(
+      (item) => item.contentMigration?.batchId === migrationBatchId,
     ).length,
   };
 }
