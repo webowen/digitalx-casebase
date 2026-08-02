@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import { AMapCaseMap, type AMapCasePoint } from "@/components/amap-case-map";
 import { CaseDocument } from "@/components/case-document";
 import {
@@ -14,7 +14,7 @@ import {
 } from "@/lib/case-model";
 import { cityStats } from "@/lib/case-analytics";
 import { getMigrationSummary } from "@/lib/benchmark-cases";
-import { getLocalCases } from "@/lib/local-cases";
+import { getLocalCases, removeLocalCase } from "@/lib/local-cases";
 import { getPublishedCases } from "@/lib/mock-cases";
 
 type DirectoryMode = "category" | "region" | "topic";
@@ -128,11 +128,13 @@ function DirectoryBranch({
   selectedCaseId,
   initiallyOpen,
   onSelectCase,
+  onOpenCaseMenu,
 }: {
   group: DirectoryGroup;
   selectedCaseId?: string;
   initiallyOpen: boolean;
   onSelectCase: (item: SmartCityCase) => void;
+  onOpenCaseMenu: (event: ReactMouseEvent<HTMLButtonElement>, item: SmartCityCase) => void;
 }) {
   const groupRef = useRef<HTMLDetailsElement>(null);
   const [open, setOpen] = useState(initiallyOpen);
@@ -168,6 +170,7 @@ function DirectoryBranch({
             subgroup={subgroup}
             selectedCaseId={selectedCaseId}
             onSelectCase={onSelectCase}
+            onOpenCaseMenu={onOpenCaseMenu}
           />
         ))}
       </div>
@@ -179,10 +182,12 @@ function DirectorySubBranch({
   subgroup,
   selectedCaseId,
   onSelectCase,
+  onOpenCaseMenu,
 }: {
   subgroup: DirectorySubgroup;
   selectedCaseId?: string;
   onSelectCase: (item: SmartCityCase) => void;
+  onOpenCaseMenu: (event: ReactMouseEvent<HTMLButtonElement>, item: SmartCityCase) => void;
 }) {
   const detailsRef = useRef<HTMLDetailsElement>(null);
   const activeRef = useRef<HTMLButtonElement>(null);
@@ -218,6 +223,7 @@ function DirectorySubBranch({
               key={item.id}
               type="button"
               onClick={() => onSelectCase(item)}
+              onContextMenu={(event) => onOpenCaseMenu(event, item)}
               className={`mb-0.5 flex w-full items-start gap-2 rounded-md px-2 py-2 text-left text-xs leading-5 transition ${
                 active
                   ? "brand-tree-active font-semibold ring-1 ring-inset"
@@ -240,27 +246,101 @@ function DirectorySubBranch({
 function DirectoryTree({
   groups,
   selectedCaseId,
+  deletableCaseIds,
   onSelectCase,
+  onDeleteCase,
 }: {
   groups: DirectoryGroup[];
   selectedCaseId?: string;
+  deletableCaseIds: Set<string>;
   onSelectCase: (item: SmartCityCase) => void;
+  onDeleteCase: (item: SmartCityCase) => void;
 }) {
+  const [contextMenu, setContextMenu] = useState<{
+    item: SmartCityCase;
+    x: number;
+    y: number;
+  } | null>(null);
+
+  useEffect(() => {
+    if (!contextMenu) return;
+    const closeMenu = () => setContextMenu(null);
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") closeMenu();
+    };
+    window.addEventListener("click", closeMenu);
+    window.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("resize", closeMenu);
+    window.addEventListener("scroll", closeMenu, true);
+    return () => {
+      window.removeEventListener("click", closeMenu);
+      window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("resize", closeMenu);
+      window.removeEventListener("scroll", closeMenu, true);
+    };
+  }, [contextMenu]);
+
+  const openCaseMenu = useCallback(
+    (event: ReactMouseEvent<HTMLButtonElement>, item: SmartCityCase) => {
+      if (!deletableCaseIds.has(item.id)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const menuWidth = 176;
+      const menuHeight = 48;
+      setContextMenu({
+        item,
+        x: Math.min(event.clientX, window.innerWidth - menuWidth - 8),
+        y: Math.min(event.clientY, window.innerHeight - menuHeight - 8),
+      });
+    },
+    [deletableCaseIds],
+  );
+
+  const confirmDelete = useCallback(() => {
+    if (!contextMenu) return;
+    const { item } = contextMenu;
+    setContextMenu(null);
+    if (!window.confirm(`确认删除“${item.title}”吗？删除后无法恢复。`)) return;
+    onDeleteCase(item);
+  }, [contextMenu, onDeleteCase]);
+
   return (
-    <div className="space-y-1 px-2 pb-5">
-      {groups.map((group, index) => (
-        <DirectoryBranch
-          key={group.label}
-          group={group}
-          selectedCaseId={selectedCaseId}
-          initiallyOpen={index < 2}
-          onSelectCase={onSelectCase}
-        />
-      ))}
-      {groups.length === 0 && (
-        <div className="px-4 py-12 text-center text-sm text-slate-500">当前条件下暂无案例</div>
+    <>
+      <div className="space-y-1 px-2 pb-5">
+        {groups.map((group, index) => (
+          <DirectoryBranch
+            key={group.label}
+            group={group}
+            selectedCaseId={selectedCaseId}
+            initiallyOpen={index < 2}
+            onSelectCase={onSelectCase}
+            onOpenCaseMenu={openCaseMenu}
+          />
+        ))}
+        {groups.length === 0 && (
+          <div className="px-4 py-12 text-center text-sm text-slate-500">当前条件下暂无案例</div>
+        )}
+      </div>
+      {contextMenu && (
+        <div
+          role="menu"
+          aria-label={`${contextMenu.item.title}操作菜单`}
+          className="fixed z-[100] w-44 rounded-lg border border-slate-200 bg-white p-1.5 shadow-xl"
+          style={{ left: contextMenu.x, top: contextMenu.y }}
+          onClick={(event) => event.stopPropagation()}
+        >
+          <button
+            type="button"
+            role="menuitem"
+            onClick={confirmDelete}
+            className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm font-medium text-red-600 hover:bg-red-50 focus:bg-red-50 focus:outline-none"
+          >
+            <span aria-hidden="true">🗑</span>
+            删除案例
+          </button>
+        </div>
       )}
-    </div>
+    </>
   );
 }
 
@@ -455,12 +535,25 @@ export default function MapWorkbench() {
       })),
     [mappableVisibleCases],
   );
+  const deletableCaseIds = useMemo(
+    () => new Set(localCases.map((item) => item.id)),
+    [localCases],
+  );
+
   const focusCaseOnMap = useCallback((item: SmartCityCase) => {
     setSelectedCaseSlug(item.slug);
     setDocumentOpen(false);
     setMapLevel("project");
     setLeftOpen(false);
   }, []);
+
+  const deleteCase = useCallback((item: SmartCityCase) => {
+    removeLocalCase(item.id);
+    if (selectedCaseSlug !== item.slug) return;
+    setSelectedCaseSlug("");
+    setDocumentOpen(false);
+    setMapLevel(activeCity === "全部" ? "national" : "city");
+  }, [activeCity, selectedCaseSlug]);
 
   const selectCasePoint = useCallback((id: string) => {
     const item = publishedCases.find((entry) => entry.id === id);
@@ -630,7 +723,9 @@ export default function MapWorkbench() {
             <DirectoryTree
               groups={directory}
               selectedCaseId={activeSelectedCase?.id}
+              deletableCaseIds={deletableCaseIds}
               onSelectCase={focusCaseOnMap}
+              onDeleteCase={deleteCase}
             />
           </div>
         </aside>
