@@ -88,7 +88,7 @@ const emptyCase: SmartCityCase = {
   province: "广东省",
   city: "深圳市",
   district: "",
-  category: "低空经济",
+  category: "交通出行",
   year: 2026,
   owner: "",
   locationLevel: "市级",
