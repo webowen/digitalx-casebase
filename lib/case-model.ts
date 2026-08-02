@@ -1,12 +1,16 @@
 export type CaseCategory =
-  | "低空经济"
-  | "城市运行"
-  | "CIM / 数字孪生"
-  | "智慧交通"
-  | "生态环保"
-  | "应急治理"
-  | "政务服务"
-  | "产业园区";
+  | "数字政府"
+  | "规划建设"
+  | "城市治理"
+  | "市政韧性"
+  | "交通出行"
+  | "生态低碳"
+  | "工业园区"
+  | "农业农村"
+  | "文旅体育"
+  | "公共民生"
+  | "商贸物流"
+  | "数据要素";
 
 export type LocationLevel = "省级" | "市级" | "区县级" | "园区/项目点";
 
@@ -401,23 +405,51 @@ export type SmartCityCase = {
 };
 
 export const categories: CaseCategory[] = [
-  "低空经济",
-  "城市运行",
-  "CIM / 数字孪生",
-  "智慧交通",
-  "生态环保",
-  "应急治理",
-  "政务服务",
-  "产业园区",
+  "数字政府",
+  "规划建设",
+  "城市治理",
+  "市政韧性",
+  "交通出行",
+  "生态低碳",
+  "工业园区",
+  "农业农村",
+  "文旅体育",
+  "公共民生",
+  "商贸物流",
+  "数据要素",
 ];
 
 export const categoryColors: Record<CaseCategory, string> = {
-  低空经济: "#0f766e",
-  城市运行: "#2563eb",
-  "CIM / 数字孪生": "#7c3aed",
-  智慧交通: "#ea580c",
-  生态环保: "#16a34a",
-  应急治理: "#dc2626",
-  政务服务: "#0891b2",
-  产业园区: "#4f46e5",
+  数字政府: "#0891b2",
+  规划建设: "#7c3aed",
+  城市治理: "#2563eb",
+  市政韧性: "#dc2626",
+  交通出行: "#ea580c",
+  生态低碳: "#16a34a",
+  工业园区: "#4f46e5",
+  农业农村: "#65a30d",
+  文旅体育: "#db2777",
+  公共民生: "#0284c7",
+  商贸物流: "#d97706",
+  数据要素: "#475569",
 };
+
+const legacyCategoryMap: Record<string, CaseCategory> = {
+  低空经济: "交通出行",
+  城市运行: "城市治理",
+  "CIM / 数字孪生": "规划建设",
+  智慧交通: "交通出行",
+  生态环保: "生态低碳",
+  应急治理: "市政韧性",
+  政务服务: "数字政府",
+  产业园区: "工业园区",
+};
+
+export function normalizeCaseCategory(value: unknown): CaseCategory {
+  if (typeof value !== "string") return "城市治理";
+  const category = value.trim();
+  if (categories.includes(category as CaseCategory)) {
+    return category as CaseCategory;
+  }
+  return legacyCategoryMap[category] ?? "城市治理";
+}

@@ -22,6 +22,7 @@ import type {
   CaseProjectIdentity,
   CaseScenario,
 } from "./case-model";
+import { normalizeCaseCategory } from "./case-model";
 
 export const NATIVE_CASE_PROTOCOL_VERSION = "1.0" as const;
 
@@ -358,7 +359,7 @@ export function normalizeNativeIdentityPackage(
     province: stringValue(rawCase.province),
     city: stringValue(rawCase.city),
     district: stringValue(rawCase.district),
-    category: stringValue(rawCase.category) || "城市运行",
+    category: normalizeCaseCategory(rawCase.category),
     year: Math.round(numberValue(rawCase.year)),
     owner: stringValue(rawCase.owner),
     locationLevel: stringValue(rawCase.locationLevel) || "市级",
@@ -656,6 +657,8 @@ export function nativeIdentityPrompt(input: {
 5. 原文仅明确省份时，city 使用省会作为地图展示锚点，并明确 locationMethod=province_capital_default、confidence不高于0.55。
 6. mediaPlan 只能引用给定图片 candidateId，最多6张，全部 needsReview=true。
 7. 只返回JSON，不生成article、researchSources或researchReport。
+8. category 必须从以下12类中选择唯一一项：数字政府、规划建设、城市治理、市政韧性、交通出行、生态低碳、工业园区、农业农村、文旅体育、公共民生、商贸物流、数据要素。
+9. 分类依据是项目主要解决的业务问题，不是技术名称。AI、BIM、CIM、GIS、数字孪生、物联网应进入 aiTags；大型场馆建设运营归文旅体育。
 
 返回结构：
 {
@@ -663,7 +666,7 @@ export function nativeIdentityPrompt(input: {
   "compatible":true,
   "incompatibilityReason":"",
   "case":{
-    "title":"","province":"","city":"","district":"","category":"城市运行","year":0,"owner":"",
+    "title":"","province":"","city":"","district":"","category":"城市治理","year":0,"owner":"",
     "locationLevel":"市级","coverageType":"城市级平台","sourceType":"新闻报道","evidenceLevel":"弱",
     "summary":"","painPoints":[],"solution":[],"outcomes":[],"aiTags":[],"expertView":"",
     "sourceTitle":"","sourceExcerpt":"","projectStage":"前期谋划","investmentAmount":"",

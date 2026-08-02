@@ -14,10 +14,11 @@ import {
   normalizeArticle,
   normalizeIdentity,
 } from "./case-editorial";
-import type {
-  CaseArticle,
-  CaseMediaCandidate,
-  CaseMediaPlanItem,
+import {
+  normalizeCaseCategory,
+  type CaseArticle,
+  type CaseMediaCandidate,
+  type CaseMediaPlanItem,
 } from "./case-model";
 import { applyLocationFallback } from "./location-resolution";
 
@@ -32,7 +33,9 @@ export const parserInstructions = `你是 DigitalX 城市数智应用案例库�
 6. expertView 只写需要进一步核验的专业判断，不得把推测写成结论。
 7. fieldAssessments 覆盖关键字段，confidence 为 0 到 1；证据不足时 needsReview=true。
 8. 如果输入不是智慧城市、城市治理或城市数字化项目资料，compatible=false，并说明原因；仍按 schema 返回空白案例对象。
-9. AI 只生成草稿，最终内容必须由人工复核后发布。`;
+9. AI 只生成草稿，最终内容必须由人工复核后发布。
+10. category 只允许：数字政府、规划建设、城市治理、市政韧性、交通出行、生态低碳、工业园区、农业农村、文旅体育、公共民生、商贸物流、数据要素。
+11. 按项目主要解决的业务问题确定唯一主分类，不按所用技术分类；AI、BIM、CIM、GIS、数字孪生、物联网进入 aiTags。场馆运营归文旅体育，工程建设和城市更新归规划建设，城市生命线和防汛归市政韧性，纯数据底座、授权运营和可信数据空间归数据要素。`;
 
 const identityInstructions = `项目身份核验规则：
 1. identity.canonicalTitle 必须填写现有证据支持的具体项目、平台或系统名称，并与 case.title 保持一致。
@@ -303,6 +306,7 @@ function normalizeParserOutput(parsed: CaseParserOutput): CaseParserOutput {
     case: {
       ...parsed.case,
       title: identity.canonicalTitle || parsed.case.title,
+      category: normalizeCaseCategory(parsed.case.category),
     },
     identity,
     article,

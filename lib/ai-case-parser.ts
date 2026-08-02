@@ -172,7 +172,7 @@ export const caseParserJsonSchema = {
         district: stringSchema,
         category: {
           type: "string",
-          enum: ["低空经济", "城市运行", "CIM / 数字孪生", "智慧交通", "生态环保", "应急治理", "政务服务", "产业园区"],
+          enum: ["数字政府", "规划建设", "城市治理", "市政韧性", "交通出行", "生态低碳", "工业园区", "农业农村", "文旅体育", "公共民生", "商贸物流", "数据要素"],
         },
         year: { type: "integer", minimum: 0, maximum: 2100 },
         owner: stringSchema,

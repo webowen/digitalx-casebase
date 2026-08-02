@@ -35,22 +35,26 @@ const mapLevelLabels: Record<MapLevel, string> = {
 
 const topics = [
   {
-    label: "城市治理与运行",
-    match: (item: SmartCityCase) => ["城市运行", "应急治理", "政务服务"].includes(item.category),
+    label: "政府治理",
+    match: (item: SmartCityCase) => ["数字政府", "城市治理"].includes(item.category),
   },
   {
-    label: "工程建设数字化",
+    label: "规划与韧性",
+    match: (item: SmartCityCase) => ["规划建设", "市政韧性"].includes(item.category),
+  },
+  {
+    label: "产业发展",
     match: (item: SmartCityCase) =>
-      item.category === "CIM / 数字孪生" ||
-      (item.aiTags ?? []).some((tag) => ["BIM", "GIS", "工程建设", "数字孪生"].includes(tag)),
+      ["工业园区", "农业农村", "商贸物流"].includes(item.category),
   },
   {
-    label: "新产业与新场景",
-    match: (item: SmartCityCase) => ["低空经济", "产业园区"].includes(item.category),
+    label: "公共服务",
+    match: (item: SmartCityCase) =>
+      ["交通出行", "生态低碳", "文旅体育", "公共民生"].includes(item.category),
   },
   {
-    label: "交通与生态韧性",
-    match: (item: SmartCityCase) => ["智慧交通", "生态环保"].includes(item.category),
+    label: "数据基础",
+    match: (item: SmartCityCase) => item.category === "数据要素",
   },
 ];
 
