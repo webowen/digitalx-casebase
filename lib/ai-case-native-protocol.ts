@@ -131,6 +131,35 @@ function stringValue(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
 }
 
+const narrativeTitleTail =
+  /^(?:从|以|面向|推动|实现|探索|打造|助力|赋能|迈向|走向|聚焦|构建|开启|引领)/;
+
+export function normalizeProjectTitle(value: unknown) {
+  let title = stringValue(value)
+    .replace(/^#{1,6}\s*/, "")
+    .replace(/^(?:案例名称|项目名称|来源标题|文章标题|标题)\s*[:：]\s*/i, "")
+    .replace(/^[\"“‘']+|[\"”’']+$/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  const structuredSeparator = title.match(/^(.{4,}?)[—–-]\s*(.+)$/);
+  if (structuredSeparator && narrativeTitleTail.test(structuredSeparator[2].trim())) {
+    title = structuredSeparator[1].trim();
+  }
+
+  const colonSeparator = title.match(/^(.{4,}?)[：:]\s*(.+)$/);
+  if (colonSeparator && narrativeTitleTail.test(colonSeparator[2].trim())) {
+    title = colonSeparator[1].trim();
+  }
+
+  const narrativeSuffix = title.match(
+    /^(.{4,}?(?:平台|系统|项目|工程|中心|应用|解决方案|示范区|试点|一期|二期))(?=(?:从|以|面向|推动|实现|探索|打造|助力|赋能|迈向|走向|聚焦|构建|开启|引领))/,
+  );
+  if (narrativeSuffix) title = narrativeSuffix[1].trim();
+
+  return title;
+}
+
 function stringArray(value: unknown) {
   if (!Array.isArray(value)) return [];
   return Array.from(
@@ -160,7 +189,7 @@ export function normalizeNativeEvidencePackage(
   const sourceIds = new Set(allowedSourceIds);
   const rawResolution = objectValue(root.identityResolution) || {};
   const identityResolution = {
-    canonicalTitle: stringValue(rawResolution.canonicalTitle),
+    canonicalTitle: normalizeProjectTitle(rawResolution.canonicalTitle),
     candidates: stringArray(rawResolution.candidates),
     aliases: stringArray(rawResolution.aliases),
     confidence: Math.min(
@@ -321,7 +350,9 @@ export function normalizeNativeIdentityPackage(
   const root = objectValue(value) || {};
   const rawCase = objectValue(root.case) || {};
   const rawIdentity = objectValue(root.identity) || {};
-  const title = stringValue(rawCase.title) || stringValue(rawIdentity.canonicalTitle);
+  const title =
+    normalizeProjectTitle(rawCase.title) ||
+    normalizeProjectTitle(rawIdentity.canonicalTitle);
   const parsedCase = {
     title,
     province: stringValue(rawCase.province),
@@ -359,7 +390,7 @@ export function normalizeNativeIdentityPackage(
     researchReport: "",
   } as ParsedCaseFields;
   const identity: CaseProjectIdentity = {
-    canonicalTitle: stringValue(rawIdentity.canonicalTitle) || title,
+    canonicalTitle: normalizeProjectTitle(rawIdentity.canonicalTitle) || title,
     candidates: stringArray(rawIdentity.candidates),
     aliases: stringArray(rawIdentity.aliases),
     confidence: Math.min(
