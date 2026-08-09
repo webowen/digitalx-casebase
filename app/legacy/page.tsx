@@ -78,7 +78,7 @@ export default function Home() {
   const [sourceType, setSourceType] = useState<FilterValue>("全部");
 
   useEffect(() => {
-    const syncLocalCases = () => setLocalCases(getLocalCases());
+    const syncLocalCases = async () => setLocalCases(await getLocalCases());
     syncLocalCases();
     window.addEventListener("digitalx-cases-updated", syncLocalCases);
     window.addEventListener("storage", syncLocalCases);
