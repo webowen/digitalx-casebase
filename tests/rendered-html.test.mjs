@@ -125,9 +125,18 @@ test("renders the V1.4 map case workbench as the default home page", async () =>
   assert.match(html, /按分类/);
   assert.match(html, /按地区/);
   assert.match(html, /按专题/);
-  assert.match(html, /导入报告/);
+  assert.match(html, /新增案例/);
   assert.match(html, /Digital X AI/);
   assert.match(html, /当前地图筛选结果/);
+  assert.match(html, /来源引用/);
+  const workbenchSource = await readFile(
+    new URL("../app/workbench/page.tsx", import.meta.url),
+    "utf8",
+  );
+  assert.match(workbenchSource, /这个项目为什么建设/);
+  assert.match(workbenchSource, /实际建设了什么/);
+  assert.match(workbenchSource, /数据从哪里来/);
+  assert.match(workbenchSource, /有哪些业务闭环/);
   assert.match(html, /案例资产/);
   assert.match(html, /选择省份/);
 });
