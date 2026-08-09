@@ -47,7 +47,7 @@ import {
 } from "@/lib/case-production";
 import { ContentProductionBoard } from "@/components/content-production-board";
 
-type ImportMode = "网页链接" | "粘贴原文" | "本地文件";
+type ImportMode = "项目名称" | "网页链接" | "粘贴原文" | "本地文件";
 type WorkflowStep = "导入资料" | "AI解析" | "人工复核" | "位置确认" | "发布入库";
 
 const providerLabels: Record<CaseParserResponse["meta"]["provider"], string> = {
@@ -80,6 +80,8 @@ const demoSource = `项目名称：深圳市低空飞行综合监管与公共服
 建设阶段：采购招标。项目总投资约3200万元，资金来源为财政资金与产业专项资金。
 预期成效：提升飞行活动可视化监管能力，缩短任务申报和跨部门协同时间，为物流、巡检、文旅和应急等场景提供统一底座。
 来源说明：本段为产品交互演示资料，不代表正式项目公告。`;
+
+const benchmarkDemoSource = "大湾区文化体育中心智慧运营管理平台";
 
 const emptyCase: SmartCityCase = {
   id: "",
@@ -261,6 +263,7 @@ export default function AdminPage() {
   const [reviewItems, setReviewItems] = useState<string[]>([]);
   const [parseMeta, setParseMeta] = useState<CaseParserResponse["meta"] | null>(null);
   const [researchMode, setResearchMode] = useState(true);
+  const [productionMode, setProductionMode] = useState<"standard" | "benchmark">("benchmark");
   const [localCases, setLocalCases] = useState<SmartCityCase[]>([]);
   const [stepIndex, setStepIndex] = useState(0);
   const [parsing, setParsing] = useState(false);
@@ -271,7 +274,7 @@ export default function AdminPage() {
   const [addingMedia, setAddingMedia] = useState(false);
 
   useEffect(() => {
-    const frame = window.requestAnimationFrame(() => setLocalCases(getLocalCases()));
+    const frame = window.requestAnimationFrame(async () => setLocalCases(await getLocalCases()));
     return () => window.cancelAnimationFrame(frame);
   }, []);
 
@@ -299,14 +302,31 @@ export default function AdminPage() {
     setNotice("已载入一份测试资料。点击解析后会真实调用当前配置的AI服务；是否收费取决于所选服务商及账户套餐。");
   }
 
+  function loadBenchmarkDemo() {
+    setImportMode("项目名称");
+    setSourceText(benchmarkDemoSource);
+    setSourceUrl("");
+    setFileName("");
+    setSourceFile(null);
+    setResearchMode(true);
+    setProductionMode("benchmark");
+    setStepIndex(0);
+    setNotice("已载入黄金样例项目名称。标杆模式会联网检索并生成长篇案例报告草稿，建议只在正式测试时使用。");
+  }
+
   async function parseCase() {
-    let activeText = importMode === "本地文件" ? "" : sourceText.trim();
+    let activeText =
+      importMode === "本地文件"
+        ? ""
+        : importMode === "项目名称"
+          ? `项目名称：${sourceText.trim()}`
+          : sourceText.trim();
     let activeFile = importMode === "本地文件" ? sourceFile : null;
     const importedFile = activeFile;
     let mediaCandidates: PendingMediaCandidate[] = [];
 
     if (!activeText && !activeFile) {
-      setErrors(["请先粘贴原始资料正文，或选择一个 PDF 文件。网页链接暂时只作为来源记录。"]);
+      setErrors(["请先输入项目名称、粘贴原始资料正文，或选择一个 PDF 文件。网页链接暂时只作为来源记录。"]);
       return;
     }
     if (activeText.length > MAX_CASE_SOURCE_CHARACTERS) {
@@ -363,6 +383,7 @@ export default function AdminPage() {
     formData.set("sourceText", activeText);
     formData.set("sourceUrl", sourceUrl);
     formData.set("researchMode", String(researchMode));
+    formData.set("productionMode", productionMode);
     formData.set(
       "mediaCandidates",
       JSON.stringify(
@@ -439,7 +460,7 @@ export default function AdminPage() {
         payload.meta.fallbackUsed
           ? `原生解析任务链已完成，但部分阶段发生降级：${payload.meta.fallbackReason}`
           : payload.meta.researchMode
-          ? `原生解析完成：已生成独立证据包、七章文章、${media.length} 张待复核图片和 ${payload.result.researchSources.length} 个可追溯来源。`
+          ? `原生解析完成：已生成独立证据包、案例正文、${media.length} 张待复核图片和 ${payload.result.researchSources.length} 个可追溯来源。`
           : `真实 AI 解析完成：生成了可编辑草稿，并标记 ${payload.result.reviewItems.length} 项人工核验事项。`,
       );
     } catch (error) {
@@ -541,7 +562,7 @@ export default function AdminPage() {
     });
   }
 
-  function advanceCurrentProduction() {
+  async function advanceCurrentProduction() {
     const check = canAdvanceProduction(caseItem);
     if (!check.allowed) {
       setErrors([check.reason]);
@@ -549,7 +570,7 @@ export default function AdminPage() {
     }
     const next = advanceProduction(caseItem);
     setCaseItem(next);
-    setLocalCases(saveLocalCase(next));
+    setLocalCases(await saveLocalCase(next));
     setErrors([]);
     setNotice(
       `案例已推进至“${
@@ -660,7 +681,7 @@ export default function AdminPage() {
     return next.length === 0;
   }
 
-  function persist(status: PublishStatus) {
+  async function persist(status: PublishStatus) {
     if (!caseItem.title.trim()) {
       setErrors(["请先完成 AI 解析或填写案例名称。"]);
       return;
@@ -691,7 +712,7 @@ export default function AdminPage() {
       importedAt: caseItem.importedAt || now,
       updatedAt: now,
     };
-    const next = saveLocalCase(item);
+    const next = await saveLocalCase(item);
     setCaseItem(item);
     setLocalCases(next);
     setErrors([]);
@@ -748,7 +769,7 @@ export default function AdminPage() {
         fetch(asset.url, { method: "DELETE" }),
       ),
     );
-    const next = removeLocalCase(id);
+    const next = await removeLocalCase(id);
     setLocalCases(next);
     if (caseItem.id === id) newCase();
     setNotice("本地案例已移除。");
@@ -838,8 +859,8 @@ export default function AdminPage() {
               <h1 className="mt-1 text-lg font-semibold">导入案例资料</h1>
             </div>
             <div className="p-4">
-              <div className="grid grid-cols-3 rounded border border-slate-200 bg-slate-50 p-1">
-                {(["网页链接", "粘贴原文", "本地文件"] as ImportMode[]).map((item) => (
+              <div className="grid grid-cols-4 rounded border border-slate-200 bg-slate-50 p-1">
+                {(["项目名称", "网页链接", "粘贴原文", "本地文件"] as ImportMode[]).map((item) => (
                   <button
                     key={item}
                     onClick={() => setImportMode(item)}
@@ -849,6 +870,23 @@ export default function AdminPage() {
                   </button>
                 ))}
               </div>
+
+              {importMode === "项目名称" && (
+                <div className="mt-4 space-y-3">
+                  <label className="block">
+                    <span className="text-xs font-medium text-slate-600">项目 / 平台 / 系统名称 *</span>
+                    <input
+                      value={sourceText}
+                      onChange={(event) => setSourceText(event.target.value)}
+                      placeholder="例如：大湾区文化体育中心智慧运营管理平台"
+                      className="mt-1.5 h-10 w-full rounded border border-slate-200 px-3 text-sm outline-none focus:border-teal-600 focus:ring-2 focus:ring-teal-100"
+                    />
+                  </label>
+                  <p className="text-xs leading-5 text-slate-500">
+                    适合只知道项目名称、希望AI联网补全资料并生成标杆案例报告的场景。
+                  </p>
+                </div>
+              )}
 
               {importMode === "网页链接" && (
                 <div className="mt-4 space-y-3">
@@ -907,14 +945,36 @@ export default function AdminPage() {
               <button onClick={loadDemo} className="mt-4 w-full rounded border border-slate-200 px-3 py-2.5 text-sm text-slate-600 hover:bg-slate-50">
                 载入演示资料
               </button>
+              <button onClick={loadBenchmarkDemo} className="mt-2 w-full rounded border border-cyan-200 bg-cyan-50 px-3 py-2.5 text-sm font-medium text-cyan-800 hover:bg-cyan-100">
+                载入大湾区文体中心黄金样例
+              </button>
               <button
                 onClick={parseCase}
                 disabled={parsing}
                 className="mt-2 flex w-full items-center justify-center gap-2 rounded bg-slate-950 px-3 py-2.5 text-sm font-medium text-white disabled:cursor-wait disabled:opacity-60"
               >
                 {parsing && <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white border-t-transparent" />}
-                {parsing ? "AI 正在阅读与提取…" : "开始真实AI结构化解析"}
+                {parsing
+                  ? "AI 正在研究与写作…"
+                  : productionMode === "benchmark"
+                    ? "开始标杆案例自动生产"
+                    : "开始真实AI结构化解析"}
               </button>
+
+              <label className="mt-3 flex items-start gap-2 rounded border border-cyan-100 bg-cyan-50/70 p-3">
+                <input
+                  type="checkbox"
+                  checked={productionMode === "benchmark"}
+                  onChange={(event) => setProductionMode(event.target.checked ? "benchmark" : "standard")}
+                  className="mt-0.5 accent-cyan-700"
+                />
+                <span className="text-xs leading-5 text-cyan-900">
+                  <b>标杆报告模式</b>
+                  <span className="block text-cyan-700">
+                    面向“大湾区文体中心”这类正式案例，优先生成长篇报告草稿；会增加模型输出长度和联网研究成本，建议用于重点案例。
+                  </span>
+                </span>
+              </label>
 
               <label className="mt-3 flex items-start gap-2 rounded border border-teal-100 bg-teal-50/70 p-3">
                 <input
@@ -926,7 +986,7 @@ export default function AdminPage() {
                 <span className="text-xs leading-5 text-teal-900">
                   <b>联网核验并生成案例文章</b>
                   <span className="block text-teal-700">
-                    先用Tavily核验正式项目名称并补充权威资料，再由DeepSeek按统一业务框架生成文章；失败时自动降级为基础解析。
+                    先核验正式项目名称并补充权威资料；成熟报告保留原结构，零散材料才按精简案例框架组织文章。
                   </span>
                 </span>
               </label>
@@ -1105,7 +1165,7 @@ export default function AdminPage() {
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div>
                       <div className="text-sm font-semibold text-slate-800">公开案例文章</div>
-                      <div className="mt-1 text-xs text-slate-500">固定业务框架、去重分层，发布后按此结构进入阅读器。</div>
+                      <div className="mt-1 text-xs text-slate-500">成熟报告保留原章节；零散材料按有证据的内容组织，空章节不会进入阅读器。</div>
                     </div>
                     <span className="text-xs text-slate-400">
                       {articleCharacterCount(caseItem.article).toLocaleString()} 字符 · {caseItem.article.sections.length} 章
@@ -1398,7 +1458,7 @@ export default function AdminPage() {
                     <div className="flex items-center justify-between gap-3">
                       <div className="text-xs font-semibold text-sky-900">AI 解析任务链</div>
                       <div className="text-[11px] text-sky-700">
-                        {caseItem.parsePipeline.status === "completed" ? "完整完成" : "已降级完成"}
+                        {parseMeta?.benchmarkMode ? "标杆生产链" : caseItem.parsePipeline.status === "completed" ? "完整完成" : "已降级完成"}
                       </div>
                     </div>
                     <ol className="mt-2 space-y-2">
@@ -1463,7 +1523,7 @@ export default function AdminPage() {
                       </div>
                     </div>
                     <div className="mt-2 text-[11px] leading-5 text-slate-600">
-                      七章内容 {caseItem.contentModel.editorialSections.length} · 事实陈述 {caseItem.contentModel.claims.length} ·
+                      结构化内容 {caseItem.contentModel.editorialSections.length} · 事实陈述 {caseItem.contentModel.claims.length} ·
                       来源 {caseItem.contentModel.sources.length} · 主体 {caseItem.contentModel.organizations.length} ·
                       数据 {caseItem.contentModel.dataAssets.length} · 场景 {caseItem.contentModel.scenarios.length} ·
                       指标 {caseItem.contentModel.metrics.length}
@@ -1586,6 +1646,7 @@ export default function AdminPage() {
                 {parseMeta && (
                   <div className="rounded bg-slate-50 p-2.5 text-[11px] leading-5 text-slate-500">
                     本次调用：输入 {parseMeta.inputTokens.toLocaleString()} tokens · 输出 {parseMeta.outputTokens.toLocaleString()} tokens
+                    {parseMeta.benchmarkMode ? " · 标杆报告模式" : ""}
                     {parseMeta.researchMode ? ` · 联网检索 ${parseMeta.searchQueryCount} 组` : ""}
                     {` · 估算费用 ¥${parseMeta.estimatedCostCny.toFixed(4)}`}
                     {parseMeta.fallbackUsed ? " · 部分阶段已降级" : " · 原生任务链完整完成"}
