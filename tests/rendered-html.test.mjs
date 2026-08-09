@@ -56,8 +56,11 @@ test("renders the real AI parser entry in the admin workspace", async () => {
   assert.equal(response.status, 200);
   const html = await response.text();
   assert.match(html, /DeepSeek基础解析 · Tavily联网研究/);
-  assert.match(html, /开始真实AI结构化解析/);
-  assert.match(html, /Tavily核验正式项目名称并补充权威资料/);
+  assert.match(html, /开始标杆案例自动生产/);
+  assert.match(html, /成熟报告保留原结构，零散材料才按精简案例框架组织文章/);
+  assert.match(html, /项目名称/);
+  assert.match(html, /大湾区文体中心黄金样例/);
+  assert.match(html, /标杆报告模式/);
   assert.match(html, /低成本模式/);
   assert.match(html, /只明确省份时，以省会城市中心作为地图展示锚点/);
 });
@@ -92,10 +95,12 @@ test("keeps the compatibility content model and visible parser pipeline", async 
   assert.match(pipelineSource, /researchCaseSources/);
   assert.match(pipelineSource, /requestDeepSeekJson/);
   assert.match(pipelineSource, /version: "1\.1"/);
+  assert.match(pipelineSource, /version: benchmarkMode \? "1\.2" : "1\.1"/);
   assert.match(pipelineSource, /联网资料研究/);
   assert.match(nativeProtocolSource, /项目身份与基础字段解析器/);
   assert.match(nativeProtocolSource, /事实与证据分析器/);
   assert.match(nativeProtocolSource, /资深案例编辑/);
+  assert.match(nativeProtocolSource, /标杆报告写作要求/);
   assert.match(nativeProtocolSource, /identityResolution/);
   assert.match(adminSource, /AI 解析任务链/);
   assert.match(adminSource, /Digital X 内容规范质量/);
@@ -114,16 +119,17 @@ test("renders the V1.4 map case workbench as the default home page", async () =>
 
   assert.equal(response.status, 200);
   const html = await response.text();
-  assert.match(html, /Digital X 城市数智应用案例库/);
-  assert.match(html, /Digital X Urban Digital Intelligence Application Case Library/);
+  assert.match(html, /智慧城市及数据要素典型应用案例一张图/);
+  assert.match(html, /Smart City and Data Element Application Case Portfolio Map/);
   assert.match(html, /案例目录/);
   assert.match(html, /按分类/);
   assert.match(html, /按地区/);
   assert.match(html, /按专题/);
+  assert.match(html, /导入报告/);
   assert.match(html, /筛选与分析/);
-  assert.match(html, /城市聚合图层/);
+  assert.match(html, /精确案例点位/);
   assert.match(html, /当前工作台状态可分享/);
-  assert.match(html, /省域/);
+  assert.match(html, /选择省份/);
 });
 
 test("directory selection focuses the map before a POI opens the document", async () => {
@@ -131,6 +137,8 @@ test("directory selection focuses the map before a POI opens the document", asyn
     new URL("../app/workbench/page.tsx", import.meta.url),
     "utf8",
   );
+  assert.match(source, /parseReportFile/);
+  assert.match(source, /accept="\.docx,\.zip,\.md,\.markdown"/);
   const focusCaseBody = source.match(
     /const focusCaseOnMap = useCallback\(\(item: SmartCityCase\) => \{([\s\S]*?)\n  \}, \[\]\);/,
   )?.[1];
@@ -141,34 +149,52 @@ test("directory selection focuses the map before a POI opens the document", asyn
   assert.ok(focusCaseBody);
   assert.ok(poiBody);
   assert.match(focusCaseBody, /setSelectedCaseSlug\(item\.slug\)/);
+  assert.match(focusCaseBody, /setCaseFocusRequest\(\(request\) => request \+ 1\)/);
   assert.match(focusCaseBody, /setDocumentOpen\(false\)/);
-  assert.match(focusCaseBody, /setMapLevel\("project"\)/);
+  assert.doesNotMatch(focusCaseBody, /setMapLevel\("project"\)/);
   assert.doesNotMatch(focusCaseBody, /setActiveProvince/);
   assert.doesNotMatch(focusCaseBody, /setActiveCity/);
   assert.match(poiBody, /setDocumentOpen\(true\)/);
+  assert.match(source, /caseFocusRequest=\{caseFocusRequest\}/);
   assert.doesNotMatch(source, /className="case-poi-card"/);
+  assert.match(source, /选择省份/);
+  assert.match(source, /选择城市/);
+  assert.match(source, /provinceOptions/);
+  assert.match(source, /getAdministrativeFocusPlace/);
   const mapSource = await readFile(
     new URL("../components/amap-case-map.tsx", import.meta.url),
     "utf8",
   );
-  assert.match(mapSource, /className = "amap-case-popup"/);
-  assert.match(mapSource, /打开完整案例/);
-  assert.match(mapSource, /popup\.addEventListener\("click"/);
+  assert.doesNotMatch(mapSource, /className = "amap-case-popup"/);
+  assert.match(mapSource, /查看案例/);
+  assert.match(mapSource, /pin\.addEventListener\("click"/);
   assert.match(mapSource, /new AMap\.Marker\(/);
-  assert.match(mapSource, /new AMap\.InfoWindow\(/);
+  assert.doesNotMatch(mapSource, /new AMap\.InfoWindow\(/);
+  assert.match(mapSource, /new AMap\.DistrictSearch\(/);
+  assert.match(mapSource, /new AMap\.Polygon\(/);
+  assert.match(mapSource, /new AMap\.TileLayer\.Satellite\(/);
+  assert.match(mapSource, /new AMap\.TileLayer\.RoadNet\(/);
+  assert.match(mapSource, /amap:\/\/styles\/whitesmoke/);
+  assert.match(mapSource, /features: \["bg", "point", "road", "building"\]/);
+  assert.match(mapSource, /map\.setFeatures\(\["bg", "point", "road", "building"\]\)/);
+  assert.match(mapSource, /map\.setLayers\(\[new AMap\.TileLayer\(\{ zIndex: 1 \}\)\]\)/);
+  assert.match(mapSource, /aria-label="地图底图切换"/);
+  assert.match(mapSource, /卫星影像/);
+  assert.doesNotMatch(mapSource, /amap:\/\/styles\/light/);
   assert.match(mapSource, /clusterPoints = selectedPoint/);
-  assert.match(
-    mapSource,
-    /infoWindow\.open\(map, \[selectedPoint\.lng, selectedPoint\.lat\]\)/,
-  );
-  assert.match(mapSource, /anchor: "bottom-center"/);
+  assert.doesNotMatch(mapSource, /InfoWindow/);
+  assert.match(mapSource, /map\.setZoomAndCenter\(/);
+  assert.match(mapSource, /Administrative navigation owns the camera/);
   assert.match(source, /view", "document"/);
   assert.match(source, /aria-label="关闭案例文档遮罩"/);
+  assert.match(source, /openGroups/);
+  assert.match(source, /openSubgroups/);
+  assert.match(source, /\[overflow-wrap:anywhere\]/);
   assert.match(source, /<CaseDocument item=\{activeSelectedCase\}/);
   assert.doesNotMatch(source, /aria-label="关闭案例预览"/);
 });
 
-test("uses one seven-part content protocol in both embedded and immersive reading", async () => {
+test("supports source-preserved and structured editorial reading", async () => {
   const documentSource = await readFile(
     new URL("../lib/case-document.ts", import.meta.url),
     "utf8",
@@ -184,14 +210,13 @@ test("uses one seven-part content protocol in both embedded and immersive readin
 
   assert.match(documentSource, /contentModel\?\.editorialSections/);
   assert.match(documentSource, /caseDocumentSectionOrder/);
-  assert.match(embeddedSource, /native-seven-part/);
+  assert.match(embeddedSource, /source-preserved/);
+  assert.match(embeddedSource, /document\.preservesSourceStructure/);
   assert.match(embeddedSource, /第 \{String\(index \+ 1\)\.padStart\(2, "0"\)\} 部分/);
   assert.match(embeddedSource, /沉浸阅读/);
   assert.match(immersiveSource, /buildCaseDocument\(item\)/);
-  assert.match(
-    immersiveSource,
-    /eyebrow: `第 \$\{String\(index \+ 1\)\.padStart\(2, "0"\)\} 部分`/,
-  );
+  assert.match(immersiveSource, /document\.preservesSourceStructure/);
+  assert.match(immersiveSource, /原报告章节/);
 });
 
 test("admin exposes beta benchmark review and batch production governance", async () => {
@@ -240,24 +265,18 @@ test("uses only documented MarkerCluster render callback fields", async () => {
   assert.match(source, /context\.count/);
 });
 
-test("renders the immersive paged case reader", async () => {
-  const worker = await loadWorker();
-  const response = await worker.fetch(
-    new Request("http://localhost/cases/shenzhen-low-altitude-airspace-service", {
-      headers: { accept: "text/html" },
-    }),
-    runtimeEnv,
-    executionContext,
+test("keeps the immersive paged case reader available for future imported cases", async () => {
+  const source = await readFile(
+    new URL("../components/case-detail-client.tsx", import.meta.url),
+    "utf8",
   );
 
-  assert.equal(response.status, 200);
-  const html = await response.text();
-  assert.match(html, /flow-paged/);
-  assert.match(html, /reader-paged-flow/);
-  assert.match(html, /aria-label="下一页"/);
-  assert.match(html, /案例要点|案例摘要/);
-  assert.match(html, /阅读/);
-  assert.match(html, /研读/);
+  assert.match(source, /ReadingFlow = "scroll" \| "paged"/);
+  assert.match(source, /reader-paged-flow/);
+  assert.match(source, /aria-label="下一页"/);
+  assert.match(source, /案例导读/);
+  assert.match(source, /阅读/);
+  assert.match(source, /研读/);
 });
 
 test("rejects an empty AI parse request before calling the model", async () => {
