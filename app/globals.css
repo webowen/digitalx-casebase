@@ -15,8 +15,23 @@
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: var(--font-inter), "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-family: "Microsoft YaHei", "PingFang SC", "Noto Sans SC", "Source Han Sans SC", var(--font-inter), Arial, sans-serif;
 }
+
+.case-document,
+.case-document button,
+.case-document input,
+.case-document select,
+.case-document textarea {
+  font-family: "Microsoft YaHei", "PingFang SC", "Noto Sans SC", "Source Han Sans SC", Arial, sans-serif;
+}
+
+.case-document-table-wrap { margin: 24px 0; max-width: 100%; overflow-x: auto; border: 1px solid #dbe4ee; border-radius: 10px; }
+.case-document-table { width: 100%; min-width: 620px; border-collapse: collapse; color: #334155; font-size: 14px; line-height: 1.75; }
+.case-document-table th, .case-document-table td { border-right: 1px solid #e2e8f0; border-bottom: 1px solid #e2e8f0; padding: 12px 14px; text-align: left; vertical-align: top; }
+.case-document-table th { background: #eff8f8; color: #0f4f4b; font-weight: 700; }
+.case-document-table tr:last-child td { border-bottom: 0; }
+.case-document-table th:last-child, .case-document-table td:last-child { border-right: 0; }
 
 html {
   scroll-behavior: smooth;
@@ -122,16 +137,51 @@ html {
 .amap-case-marker {
   position: relative;
   display: flex;
-  max-width: 190px;
+  max-width: 260px;
   align-items: center;
-  gap: 7px;
-  border: 1px solid rgba(15, 118, 110, 0.35);
+  gap: 6px;
+  border: 1px solid rgba(8, 127, 232, 0.28);
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.96);
-  padding: 6px 10px 6px 7px;
-  color: #0f172a;
-  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.2);
+  background: rgba(255, 255, 255, 0.94);
+  padding: 5px 10px 5px 7px;
+  color: #132b52;
+  box-shadow: 0 8px 20px rgba(6, 45, 104, 0.14);
   cursor: pointer;
+  backdrop-filter: blur(10px);
+  transform-origin: left bottom;
+  transition: padding 180ms ease, max-width 180ms ease, transform 180ms ease,
+    box-shadow 180ms ease, background 180ms ease, border-color 180ms ease;
+}
+
+.amap-case-marker.is-dot {
+  width: 12px;
+  height: 12px;
+  min-width: 12px;
+  padding: 0;
+  border: 2px solid #fff;
+  background: var(--brand-cyan, #08b8d9);
+  box-shadow: 0 0 0 3px rgba(8, 184, 217, 0.18), 0 4px 10px rgba(6, 45, 104, 0.18);
+}
+
+.amap-case-marker.is-dot::after,
+.amap-case-marker.is-dot > span,
+.amap-case-marker.is-dot > strong {
+  display: none;
+}
+
+.amap-case-marker.is-compact {
+  max-width: 118px;
+  padding-right: 8px;
+}
+
+.amap-case-marker.is-compact > strong {
+  max-width: 88px;
+  font-size: 11px;
+}
+
+.amap-case-marker:hover {
+  z-index: 10;
+  transform: translateY(-2px) scale(1.04);
 }
 
 .amap-case-marker::after {
@@ -149,8 +199,8 @@ html {
 
 .amap-case-marker > span {
   z-index: 1;
-  width: 10px;
-  height: 10px;
+  width: 8px;
+  height: 8px;
   flex: none;
   border: 2px solid white;
   border-radius: 999px;
@@ -160,17 +210,18 @@ html {
 
 .amap-case-marker > strong {
   overflow: hidden;
-  font-size: 11px;
-  line-height: 16px;
+  font-size: 12px;
+  font-weight: 750;
+  line-height: 17px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .amap-case-marker.is-active {
-  border-color: #0f172a;
-  background: #0f172a;
+  border-color: rgba(255, 255, 255, 0.92);
+  background: var(--brand-gradient);
   color: white;
-  box-shadow: 0 0 0 4px rgba(94, 234, 212, 0.38), 0 8px 24px rgba(15, 23, 42, 0.32);
+  box-shadow: 0 0 0 4px rgba(22, 215, 199, 0.26), 0 12px 30px rgba(23, 69, 220, 0.28);
 }
 
 .amap-case-marker.is-active::after {
@@ -225,15 +276,52 @@ html {
   transform: scale(1.22);
 }
 
+.brand-header-lockup {
+  flex-basis: min(58vw, 1120px);
+  max-width: 1120px;
+}
+
+.brand-title-row {
+  width: 100%;
+  gap: clamp(8px, 0.85vw, 16px);
+  padding-right: clamp(20px, 2vw, 42px);
+  line-height: 1;
+}
+
 .brand-title {
-  color: var(--brand-ink);
-  letter-spacing: -0.01em;
+  background: linear-gradient(90deg, #1557e6 0%, #087fe8 58%, #08b8d9 100%);
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: #1557e6;
+  font-size: clamp(21px, 1.35vw, 27px);
+  font-weight: 900;
+  letter-spacing: 0.01em;
+  line-height: 1;
+  -webkit-text-fill-color: transparent;
+}
+
+.brand-subtitle {
+  min-width: 0;
+  overflow: hidden;
+  color: #2868e8;
+  font-size: clamp(12px, 0.76vw, 15px);
+  font-style: italic;
+  font-weight: 800;
+  letter-spacing: 0.004em;
+  line-height: 1;
+  padding-bottom: 1px;
+  text-overflow: ellipsis;
 }
 
 .brand-subtitle,
 .brand-eyebrow,
 .brand-link {
   color: #0878d6;
+}
+
+.brand-search-wrap {
+  flex: 1 1 500px;
+  max-width: 640px;
 }
 
 .brand-eyebrow {
@@ -361,14 +449,19 @@ html {
 
 .amap-case-point {
   position: relative;
-  width: 28px;
-  height: 34px;
+  width: 1px;
+  height: 1px;
 }
 
 .amap-case-point .amap-case-marker {
   position: absolute;
-  left: 0;
-  bottom: 0;
+  left: -12px;
+  bottom: 18px;
+}
+
+.amap-case-point.is-dot .amap-case-marker {
+  left: 8px;
+  bottom: -7px;
 }
 
 .amap-case-point.is-active .amap-case-marker {
@@ -383,75 +476,21 @@ html {
   background: var(--brand-deep);
 }
 
-.amap-case-popup {
-  position: relative;
-  display: flex;
-  width: min(286px, calc(100vw - 48px));
-  flex-direction: column;
-  align-items: flex-start;
-  border: 1px solid rgba(8, 127, 232, 0.25);
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.97);
-  padding: 12px 14px;
-  color: #132b52;
-  text-align: left;
-  box-shadow: 0 16px 38px rgba(6, 45, 104, 0.2);
-  backdrop-filter: blur(14px);
-}
-
-.amap-case-infowindow {
-  position: relative;
-  transform: translateY(-2px);
-}
-
-.amap-case-popup::after {
-  position: absolute;
-  bottom: -7px;
-  left: calc(50% - 7px);
-  width: 14px;
-  height: 14px;
-  border-right: 1px solid rgba(8, 127, 232, 0.25);
-  border-bottom: 1px solid rgba(8, 127, 232, 0.25);
-  background: #fff;
-  content: "";
-  transform: rotate(45deg);
-}
-
-.amap-case-popup-eyebrow {
-  color: var(--brand-blue);
-  font-size: 9px;
-  font-weight: 750;
-  letter-spacing: 0.05em;
-}
-
-.amap-case-popup > strong {
-  margin-top: 4px;
-  font-size: 13px;
-  line-height: 1.5;
-}
-
-.amap-case-popup-meta {
-  margin-top: 4px;
-  color: #718096;
-  font-size: 10px;
-}
-
-.amap-case-popup-action {
-  margin-top: 8px;
-  color: var(--brand-blue);
-  font-size: 10px;
-  font-weight: 750;
-}
 
 /* V1.5.0-alpha.2.2 in-place case document */
 
 .case-document-layer {
-  position: absolute;
-  inset: 0;
+  /* Anchor the reader to the real viewport, not to a grid item whose
+     min-content height can be enlarged by either sidebar. */
+  position: fixed;
+  inset: 68px 296px 0 320px;
   z-index: 30;
   display: grid;
   place-items: center;
-  padding: 14px;
+  min-width: 0;
+  min-height: 0;
+  padding: 16px;
+  overflow: hidden;
 }
 
 .case-document-backdrop {
@@ -464,8 +503,9 @@ html {
 
 .case-document-shell {
   position: relative;
-  width: min(860px, calc(100% - 28px));
-  height: min(920px, calc(100% - 28px));
+  width: min(900px, 100%);
+  height: min(780px, 100%);
+  max-height: calc(100dvh - 68px - 32px);
   overflow: hidden;
   border: 1px solid rgba(8, 127, 232, 0.24);
   border-radius: 14px;
@@ -473,6 +513,12 @@ html {
   box-shadow:
     0 28px 80px rgba(6, 32, 75, 0.26),
     0 0 0 1px rgba(255, 255, 255, 0.8) inset;
+}
+
+@media (max-width: 1023px) {
+  .case-document-layer {
+    inset: 68px 0 0;
+  }
 }
 
 .case-document {
@@ -586,7 +632,7 @@ html {
 }
 
 .case-document-cover {
-  padding: 68px 0 54px;
+  padding: 48px 0 42px;
 }
 
 .case-document-kicker {
@@ -627,7 +673,7 @@ html {
     "STSong",
     "SimSun",
     serif;
-  font-size: clamp(32px, 4.1vw, 42px);
+  font-size: clamp(30px, 3.4vw, 38px);
   font-weight: 700;
   letter-spacing: -0.035em;
   line-height: 1.35;
@@ -644,43 +690,25 @@ html {
     "STSong",
     "SimSun",
     serif;
-  font-size: 17px;
+  font-size: 16px;
   letter-spacing: 0.015em;
   line-height: 1.9;
   text-align: justify;
 }
 
-.case-document-facts {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  margin-top: 34px;
-  border-top: 1px solid var(--document-rule);
-  border-bottom: 1px solid var(--document-rule);
+.case-document-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 24px;
 }
 
-.case-document-facts > div {
-  min-width: 0;
-  padding: 15px 14px 16px 0;
-}
-
-.case-document-facts > div + div {
-  border-left: 1px solid var(--document-rule);
-  padding-left: 14px;
-}
-
-.case-document-facts dt {
-  color: #7a8798;
-  font-size: 9px;
-  font-weight: 700;
-  letter-spacing: 0.12em;
-}
-
-.case-document-facts dd {
-  margin-top: 6px;
-  color: #29384d;
-  font-size: 12px;
-  font-weight: 650;
-  line-height: 1.55;
+.case-document-tags span {
+  border-radius: 999px;
+  background: #eef5f8;
+  padding: 5px 10px;
+  color: #506175;
+  font-size: 11px;
 }
 
 .case-document-findings {
@@ -700,28 +728,22 @@ html {
   font-weight: 700;
 }
 
-.case-document-findings ol {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-  margin-top: 16px;
+.case-document-findings ul {
+  margin-top: 14px;
+  border-left: 3px solid var(--document-cyan);
+  padding-left: 20px;
 }
 
 .case-document-findings li {
-  display: grid;
-  grid-template-columns: 28px minmax(0, 1fr);
-  gap: 9px;
-  border: 1px solid #dde8f0;
-  border-radius: 8px;
-  background: linear-gradient(145deg, #f8fbff, #f5fffd);
-  padding: 15px;
+  position: relative;
+  padding: 4px 0 4px 16px;
 }
 
-.case-document-findings li > span {
+.case-document-findings li::before {
+  position: absolute;
+  left: 0;
   color: var(--document-cyan);
-  font-family: Georgia, serif;
-  font-size: 11px;
-  font-weight: 700;
+  content: "•";
 }
 
 .case-document-findings p {
@@ -732,7 +754,7 @@ html {
 
 .case-document-section {
   border-top: 1px solid var(--document-rule);
-  padding: 52px 0 56px;
+  padding: 44px 0 48px;
   scroll-margin-top: 58px;
 }
 
@@ -759,7 +781,7 @@ html {
     "STSong",
     "SimSun",
     serif;
-  font-size: 27px;
+  font-size: 25px;
   font-weight: 700;
   letter-spacing: -0.02em;
   line-height: 1.45;
@@ -796,9 +818,9 @@ html {
     "STSong",
     "SimSun",
     serif;
-  font-size: 16.5px;
+  font-size: 16px;
   letter-spacing: 0.02em;
-  line-height: 1.95;
+  line-height: 1.9;
   text-align: justify;
 }
 
@@ -989,17 +1011,6 @@ html {
 
   .case-document-cover h1 {
     font-size: 30px;
-  }
-
-  .case-document-facts,
-  .case-document-findings ol {
-    grid-template-columns: 1fr;
-  }
-
-  .case-document-facts > div + div {
-    border-top: 1px solid var(--document-rule);
-    border-left: 0;
-    padding-left: 0;
   }
 
   .case-document-section {
