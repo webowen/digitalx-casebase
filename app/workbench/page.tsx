@@ -451,6 +451,7 @@ export default function MapWorkbench() {
   const [filterOpen, setFilterOpen] = useState(false);
   const [aiScope, setAiScope] = useState<"case" | "map" | "all">("map");
   const [aiQuestion, setAiQuestion] = useState("");
+  const [aiResponse, setAiResponse] = useState("");
 
   const restoreUrl = useCallback(() => {
     const params = new URLSearchParams(window.location.search);
@@ -925,7 +926,7 @@ export default function MapWorkbench() {
           }}
           className="brand-gradient-button hidden shrink-0 rounded-md px-3 py-2 text-xs font-semibold text-white shadow-sm sm:block"
         >
-          导入报告
+          新增案例
         </button>
       </header>
 
@@ -1206,12 +1207,27 @@ export default function MapWorkbench() {
               </div>
               <p className="mt-2 text-[10px] leading-4 text-slate-500">{aiScope === 'case' ? selectedCase?.title || '请先选择一个案例' : aiScope === 'map' ? `当前地图筛选结果：${visibleCases.length} 个案例` : `公开资产库：${publishedCases.length} 个案例`}</p>
             </section>
-            <section className="mt-4 flex-1 rounded-xl border border-slate-200 bg-white p-3">
+            <section className="mt-4 min-h-0 flex-1 overflow-y-auto rounded-xl border border-slate-200 bg-white p-3">
               <p className="text-xs font-semibold text-slate-800">基于真实案例资产提问</p>
               <p className="mt-2 text-[11px] leading-5 text-slate-500">本轮已建立上下文结构。复杂 RAG 尚未接入，AI 不会把未核验信息写回案例资产。</p>
-              <div className="mt-4 space-y-2">{['比较当前案例的建设逻辑','总结当前地图结果的共性','寻找可复用的平台能力'].map((text) => <button key={text} type="button" onClick={() => setAiQuestion(text)} className="block w-full rounded-lg border border-slate-200 px-3 py-2 text-left text-[11px] text-slate-600 hover:border-teal-300 hover:bg-teal-50">{text}</button>)}</div>
+              <div className="mt-4 space-y-2">
+                {(aiScope === "case"
+                  ? ["这个项目为什么建设？", "实际建设了什么？", "数据从哪里来？", "有哪些业务闭环？", "投资和建设单位是什么？", "找类似案例", "与其他案例对比"]
+                  : aiScope === "map"
+                    ? ["总结当前地图结果的共性", "这些案例主要分布在哪些地区？", "比较当前结果的建设模式"]
+                    : ["寻找可复用的平台能力", "归纳全部案例的主要建设方向", "找出证据最完整的案例"]
+                ).map((text) => <button key={text} type="button" onClick={() => setAiQuestion(text)} className="block w-full rounded-lg border border-slate-200 px-3 py-2 text-left text-[11px] text-slate-600 hover:border-teal-300 hover:bg-teal-50">{text}</button>)}
+              </div>
+              <div className="mt-4 border-t border-slate-200 pt-3" aria-live="polite">
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">回答</p>
+                <p className="mt-2 text-[11px] leading-5 text-slate-600">{aiResponse || "选择快捷问题或输入研究问题后，回答将显示在这里。"}</p>
+                <div className="mt-3 rounded-lg bg-slate-50 p-2 text-[10px] text-slate-500">
+                  <strong className="block text-slate-600">来源引用</strong>
+                  <span className="mt-1 block">待接入案例正文与 sources/source.md 引用。</span>
+                </div>
+              </div>
             </section>
-            <div className="mt-3 rounded-xl border border-slate-200 bg-white p-2"><textarea value={aiQuestion} onChange={(event) => setAiQuestion(event.target.value)} placeholder="向 Digital X AI 提问…" className="h-20 w-full resize-none p-2 text-xs outline-none"/><button type="button" disabled={!aiQuestion.trim()} className="brand-gradient-button w-full rounded-full py-2 text-xs font-semibold text-white disabled:opacity-40">发送（RAG 待接入）</button></div>
+            <div className="mt-3 rounded-xl border border-slate-200 bg-white p-2"><textarea value={aiQuestion} onChange={(event) => setAiQuestion(event.target.value)} placeholder="输入案例研究问题…" className="h-20 w-full resize-none p-2 text-xs outline-none"/><button type="button" disabled={!aiQuestion.trim()} onClick={() => setAiResponse(`已准备“${aiScope === "case" ? selectedCase?.title || "当前案例" : aiScope === "map" ? `${visibleCases.length} 个地图结果` : `${publishedCases.length} 个公开案例`}”上下文。复杂检索与生成将在下一阶段接入，本轮不会生成未经来源核验的回答。`)} className="brand-gradient-button w-full rounded-full py-2 text-xs font-semibold text-white disabled:opacity-40">提交研究问题</button></div>
           </div>
         </aside>
       </section>
