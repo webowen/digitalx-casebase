@@ -51,10 +51,7 @@ type MarkerLike = {
   setMap(map: MapLike | null): void;
 };
 
-type InfoWindowLike = {
-  open(map: MapLike, position: [number, number]): void;
-  close(): void;
-};
+type CaseMarkerDetail = "dot" | "compact" | "full";
 
 type PointRenderContext = {
   marker: MarkerLike;
@@ -69,25 +66,55 @@ type ClusterLike = {
   setMap(map: MapLike | null): void;
 };
 
+type BaseMapType = "standard" | "satellite";
+
+export type MapAdministrativeFocus = {
+  level: "national" | "province" | "city";
+  province?: string;
+  city?: string;
+  center?: [number, number];
+  zoom?: number;
+};
+
 type MapLike = {
   addControl(control: unknown): void;
+  add(overlay: unknown | unknown[]): void;
+  remove(overlay: unknown | unknown[]): void;
   destroy(): void;
-  setFitView(): void;
+  setMapStyle(style: string): void;
+  setFeatures(features: string[]): void;
+  setLayers(layers: unknown[]): void;
+  setFitView(overlays?: unknown[] | null, immediately?: boolean, padding?: number[]): void;
   setZoomAndCenter(zoom: number, center: [number, number], immediately?: boolean, duration?: number): void;
+  getZoom(): number;
+  on(event: "zoomend", handler: () => void): void;
+  off(event: "zoomend", handler: () => void): void;
+};
+
+type TileLayerConstructor = (new (options?: Record<string, unknown>) => unknown) & {
+  Satellite: new (options?: Record<string, unknown>) => unknown;
+  RoadNet: new (options?: Record<string, unknown>) => unknown;
 };
 
 type AMapNamespace = {
   Map: new (container: HTMLElement, options: Record<string, unknown>) => MapLike;
   Marker: new (options: Record<string, unknown>) => MarkerLike;
-  InfoWindow: new (options: Record<string, unknown>) => InfoWindowLike;
   MarkerCluster: new (
     map: MapLike,
     data: AMapPointData[],
     options: Record<string, unknown>,
   ) => ClusterLike;
   Pixel: new (x: number, y: number) => unknown;
+  Polygon: new (options: Record<string, unknown>) => unknown;
+  DistrictSearch: new (options: Record<string, unknown>) => {
+    search(
+      keyword: string,
+      callback: (status: string, result: { districtList?: Array<{ boundaries?: Array<[number, number][]> }> }) => void,
+    ): void;
+  };
   Scale: new (options?: Record<string, unknown>) => unknown;
   ToolBar: new (options?: Record<string, unknown>) => unknown;
+  TileLayer: TileLayerConstructor;
 };
 
 declare global {
@@ -131,7 +158,7 @@ function loadAMap() {
           const script = document.createElement("script");
           script.dataset.digitalxAmap = "true";
           script.async = true;
-          script.src = `https://webapi.amap.com/maps?v=2.0&key=${encodeURIComponent(key)}&plugin=AMap.MarkerCluster,AMap.Scale,AMap.ToolBar`;
+          script.src = `https://webapi.amap.com/maps?v=2.0&key=${encodeURIComponent(key)}&plugin=AMap.MarkerCluster,AMap.Scale,AMap.ToolBar,AMap.DistrictSearch`;
           script.onload = () => {
             if (window.AMap) resolve(window.AMap);
             else reject(new Error("高德地图脚本加载后未完成初始化"));
@@ -209,14 +236,16 @@ function createCaseMarkerElement(
   point: CasePointData,
   onSelectCase: (id: string) => void,
   active: boolean,
+  detail: CaseMarkerDetail = "full",
 ) {
   const marker = document.createElement("div");
-  marker.className = `amap-case-point${active ? " is-active" : ""}`;
+  const resolvedDetail = active ? "full" : detail;
+  marker.className = `amap-case-point is-${resolvedDetail}${active ? " is-active" : ""}`;
   marker.dataset.caseId = point.id;
 
   const pin = document.createElement("button");
   pin.type = "button";
-  pin.className = `amap-case-marker${active ? " is-active" : ""}`;
+  pin.className = `amap-case-marker is-${resolvedDetail}${active ? " is-active" : ""}`;
   pin.setAttribute("aria-label", `查看案例：${point.title}`);
   pin.title = `${point.title} · 位置置信度 ${Math.round(point.locationConfidence * 100)}%`;
   const dot = document.createElement("span");
@@ -229,34 +258,10 @@ function createCaseMarkerElement(
   return marker;
 }
 
-function createCaseInfoCard(
-  point: CasePointData,
-  onSelectCase: (id: string) => void,
-) {
-  const wrapper = document.createElement("div");
-  wrapper.className = "amap-case-infowindow";
-  wrapper.dataset.caseId = point.id;
-
-  const popup = document.createElement("button");
-  popup.type = "button";
-  popup.className = "amap-case-popup";
-  popup.setAttribute("aria-label", `打开完整案例：${point.title}`);
-
-  const eyebrow = document.createElement("span");
-  eyebrow.className = "amap-case-popup-eyebrow";
-  eyebrow.textContent = `${point.category} · ${point.province}${point.city}`;
-  const title = document.createElement("strong");
-  title.textContent = point.title;
-  const meta = document.createElement("span");
-  meta.className = "amap-case-popup-meta";
-  meta.textContent = `${point.locationLevel} · 位置置信度 ${Math.round(point.locationConfidence * 100)}%`;
-  const action = document.createElement("span");
-  action.className = "amap-case-popup-action";
-  action.textContent = point.benchmark ? "标杆样稿 · 查看案例 →" : "查看完整案例 →";
-  popup.append(eyebrow, title, meta, action);
-  popup.addEventListener("click", () => onSelectCase(point.id));
-  wrapper.append(popup);
-  return wrapper;
+export function getCaseMarkerDetail(zoom: number): CaseMarkerDetail {
+  if (zoom <= 5.5) return "dot";
+  if (zoom < 8) return "compact";
+  return "full";
 }
 
 function createClusterMarker(
@@ -285,8 +290,10 @@ export function AMapCaseMap({
   cities,
   casePoints = [],
   displayMode = "city",
+  administrativeFocus = { level: "national" },
   activeCity,
   activeCaseId,
+  caseFocusRequest = 0,
   onSelectCity,
   onSelectCase = () => undefined,
   onClearFilters,
@@ -295,8 +302,10 @@ export function AMapCaseMap({
   cities: AMapCityPoint[];
   casePoints?: AMapCasePoint[];
   displayMode?: "city" | "case";
+  administrativeFocus?: MapAdministrativeFocus;
   activeCity: string;
   activeCaseId?: string;
+  caseFocusRequest?: number;
   onSelectCity: (city: string) => void;
   onSelectCase?: (id: string) => void;
   onClearFilters: () => void;
@@ -305,14 +314,16 @@ export function AMapCaseMap({
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MapLike | null>(null);
   const clusterRef = useRef<ClusterLike | null>(null);
+  const caseMarkersRef = useRef<MarkerLike[]>([]);
   const activeMarkerRef = useRef<MarkerLike | null>(null);
-  const infoWindowRef = useRef<InfoWindowLike | null>(null);
+  const boundaryRef = useRef<unknown[]>([]);
   const amapRef = useRef<AMapNamespace | null>(null);
   const onSelectCityRef = useRef(onSelectCity);
   const onSelectCaseRef = useRef(onSelectCase);
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
   const [errorMessage, setErrorMessage] = useState("");
   const [retry, setRetry] = useState(0);
+  const [baseMapType, setBaseMapType] = useState<BaseMapType>("standard");
 
   useEffect(() => {
     onSelectCityRef.current = onSelectCity;
@@ -331,10 +342,11 @@ export function AMapCaseMap({
             center: [104.1954, 35.8617],
             zoom: 4.6,
             zooms: [3, 18],
-            mapStyle: "amap://styles/whitesmoke",
             viewMode: "2D",
             resizeEnable: true,
             showLabel: true,
+            mapStyle: "amap://styles/whitesmoke",
+            features: ["bg", "point", "road", "building"],
           });
           map.addControl(new AMap.Scale());
           map.addControl(new AMap.ToolBar({ position: "RB" }));
@@ -356,10 +368,14 @@ export function AMapCaseMap({
       cancelled = true;
       clusterRef.current?.setMap(null);
       clusterRef.current = null;
+      caseMarkersRef.current.forEach((marker) => marker.setMap(null));
+      caseMarkersRef.current = [];
       activeMarkerRef.current?.setMap(null);
       activeMarkerRef.current = null;
-      infoWindowRef.current?.close();
-      infoWindowRef.current = null;
+      if (boundaryRef.current.length > 0 && mapRef.current) {
+        mapRef.current.remove(boundaryRef.current);
+      }
+      boundaryRef.current = [];
       mapRef.current?.destroy();
       mapRef.current = null;
       amapRef.current = null;
@@ -370,14 +386,95 @@ export function AMapCaseMap({
     const map = mapRef.current;
     const AMap = amapRef.current;
     if (status !== "ready" || !map || !AMap) return;
+
+    if (baseMapType === "satellite") {
+      map.setMapStyle("amap://styles/normal");
+      map.setFeatures(["bg", "point", "road", "building"]);
+      map.setLayers([
+        new AMap.TileLayer.Satellite({ zIndex: 2 }),
+        new AMap.TileLayer.RoadNet({ zIndex: 3 }),
+      ]);
+      return;
+    }
+
+    map.setMapStyle("amap://styles/whitesmoke");
+    map.setFeatures(["bg", "point", "road", "building"]);
+    map.setLayers([new AMap.TileLayer({ zIndex: 1 })]);
+  }, [baseMapType, status]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    const AMap = amapRef.current;
+    if (status !== "ready" || !map || !AMap) return;
+
+    if (boundaryRef.current.length > 0) {
+      map.remove(boundaryRef.current);
+      boundaryRef.current = [];
+    }
+
+    if (administrativeFocus.center && !activeCaseId) {
+      map.setZoomAndCenter(
+        administrativeFocus.zoom ?? (administrativeFocus.level === "national" ? 4.1 : 7),
+        administrativeFocus.center,
+        false,
+        180,
+      );
+    }
+
+    if (administrativeFocus.level === "national") {
+      return;
+    }
+
+    const keyword = administrativeFocus.level === "city"
+      ? administrativeFocus.city
+      : administrativeFocus.province;
+    if (!keyword || keyword === "全部") return;
+
+    const search = new AMap.DistrictSearch({
+      level: administrativeFocus.level === "city" ? "city" : "province",
+      extensions: "all",
+      subdistrict: 0,
+    });
+    let cancelled = false;
+    search.search(keyword, (searchStatus, result) => {
+      if (cancelled || searchStatus !== "complete") return;
+      const boundaries = result.districtList?.[0]?.boundaries || [];
+      const polygons = boundaries.map(
+        (path) =>
+          new AMap.Polygon({
+            path,
+            strokeColor: "#087fe8",
+            strokeWeight: 2,
+            strokeOpacity: 0.9,
+            fillColor: "#16d7c7",
+            fillOpacity: 0.08,
+            zIndex: 80,
+          }),
+      );
+      if (polygons.length === 0) return;
+      boundaryRef.current = polygons;
+      map.add(polygons);
+      if (!activeCaseId && !administrativeFocus.center) {
+        map.setFitView(polygons, false, [80, 80, 80, 80]);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeCaseId, administrativeFocus, status]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    const AMap = amapRef.current;
+    if (status !== "ready" || !map || !AMap) return;
     let fitViewTimer: number | undefined;
 
     clusterRef.current?.setMap(null);
     clusterRef.current = null;
+    caseMarkersRef.current.forEach((marker) => marker.setMap(null));
+    caseMarkersRef.current = [];
     activeMarkerRef.current?.setMap(null);
     activeMarkerRef.current = null;
-    infoWindowRef.current?.close();
-    infoWindowRef.current = null;
     const sourcePoints = displayMode === "case" ? casePoints : cities;
     if (sourcePoints.length === 0) return;
 
@@ -409,10 +506,36 @@ export function AMapCaseMap({
         : points;
 
       let cluster: ClusterLike | null = null;
-      if (clusterPoints.length > 0) {
+      let zoomHandler: (() => void) | undefined;
+      if (displayMode === "case") {
+        const caseData = points.filter((point): point is CasePointData => point.kind === "case");
+        const renderCaseMarkers = () => {
+          const detail = getCaseMarkerDetail(map.getZoom());
+          caseMarkersRef.current.forEach((marker) => marker.setMap(null));
+          caseMarkersRef.current = caseData.map((point) => {
+            const active = point.id === activeCaseId;
+            const marker = new AMap.Marker({
+              position: point.lnglat,
+              content: createCaseMarkerElement(
+                point,
+                (id) => onSelectCaseRef.current(id),
+                active,
+                detail,
+              ),
+              offset: new AMap.Pixel(-14, -34),
+              zIndex: active ? 320 : detail === "full" ? 220 : 180,
+            });
+            marker.setMap(map);
+            return marker;
+          });
+        };
+        renderCaseMarkers();
+        zoomHandler = renderCaseMarkers;
+        map.on("zoomend", zoomHandler);
+      } else if (clusterPoints.length > 0) {
         cluster = new AMap.MarkerCluster(map, clusterPoints, {
-          gridSize: displayMode === "case" ? 52 : 68,
-          maxZoom: displayMode === "case" ? 15 : 10,
+          gridSize: 68,
+          maxZoom: 10,
           averageCenter: true,
           zoomOnClick: true,
           renderMarker: (context: PointRenderContext) =>
@@ -424,7 +547,7 @@ export function AMapCaseMap({
               (id) => onSelectCaseRef.current(id),
             ),
           renderClusterMarker: (context: ClusterRenderContext) =>
-            createClusterMarker(AMap, context, displayMode === "case" ? "case" : "city"),
+            createClusterMarker(AMap, context, "city"),
         });
         clusterRef.current = cluster;
       }
@@ -433,34 +556,8 @@ export function AMapCaseMap({
         const selected = casePoints.find((point) => point.id === activeCaseId);
         if (selected) {
           map.setZoomAndCenter(locationZoom[selected.locationLevel], [selected.lng, selected.lat], false, 350);
-          if (selectedPoint) {
-            const activeMarker = new AMap.Marker({
-              position: [selectedPoint.lng, selectedPoint.lat],
-              content: createCaseMarkerElement(
-                selectedPoint,
-                (id) => onSelectCaseRef.current(id),
-                true,
-              ),
-              offset: new AMap.Pixel(-14, -34),
-              zIndex: 320,
-            });
-            activeMarker.setMap(map);
-            activeMarkerRef.current = activeMarker;
-
-            const infoWindow = new AMap.InfoWindow({
-              isCustom: true,
-              content: createCaseInfoCard(
-                selectedPoint,
-                (id) => onSelectCaseRef.current(id),
-              ),
-              anchor: "bottom-center",
-              offset: new AMap.Pixel(0, -42),
-              autoMove: true,
-              closeWhenClickMap: false,
-            });
-            infoWindow.open(map, [selectedPoint.lng, selectedPoint.lat]);
-            infoWindowRef.current = infoWindow;
-          }
+        } else if (administrativeFocus.level !== "national") {
+          // Administrative navigation owns the camera; case markers should not pull it back.
         } else if (casePoints.length === 1) {
           map.setZoomAndCenter(locationZoom[casePoints[0].locationLevel], [casePoints[0].lng, casePoints[0].lat], false, 350);
         } else {
@@ -475,12 +572,13 @@ export function AMapCaseMap({
 
       return () => {
         if (fitViewTimer !== undefined) window.clearTimeout(fitViewTimer);
+        if (zoomHandler) map.off("zoomend", zoomHandler);
         cluster?.setMap(null);
         if (clusterRef.current === cluster) clusterRef.current = null;
+        caseMarkersRef.current.forEach((marker) => marker.setMap(null));
+        caseMarkersRef.current = [];
         activeMarkerRef.current?.setMap(null);
         activeMarkerRef.current = null;
-        infoWindowRef.current?.close();
-        infoWindowRef.current = null;
       };
     } catch (error) {
       window.setTimeout(() => {
@@ -488,7 +586,7 @@ export function AMapCaseMap({
         setErrorMessage(error instanceof Error ? error.message : "地图点位加载失败");
       }, 0);
     }
-  }, [activeCaseId, activeCity, casePoints, cities, displayMode, status]);
+  }, [activeCaseId, activeCity, administrativeFocus.level, caseFocusRequest, casePoints, cities, displayMode, status]);
 
   function retryLoad() {
     document.querySelector("script[data-digitalx-amap]")?.remove();
@@ -499,6 +597,7 @@ export function AMapCaseMap({
   }
 
   const pointCount = displayMode === "case" ? casePoints.length : cities.length;
+  const showNoPointOverlay = pointCount === 0 && administrativeFocus.level === "national";
 
   return (
     <div className={`relative overflow-hidden bg-[#edf3f3] ${className}`}>
@@ -525,7 +624,7 @@ export function AMapCaseMap({
         </div>
       )}
 
-      {status === "ready" && pointCount === 0 && (
+      {status === "ready" && showNoPointOverlay && (
         <div className="absolute inset-0 z-20 flex items-center justify-center bg-white/60 backdrop-blur-[1px]">
           <div className="rounded-md border border-slate-200 bg-white px-5 py-4 text-center shadow-sm">
             <div className="font-medium">没有符合条件的地图点位</div>
@@ -537,8 +636,36 @@ export function AMapCaseMap({
       )}
 
       {status === "ready" && (
-        <div className="pointer-events-none absolute left-3 top-3 z-10 rounded bg-white/95 px-2.5 py-1.5 text-[11px] font-medium text-slate-600 shadow-sm">
-          高德地图 · {displayMode === "case" ? "精确案例点位" : "城市聚合"}
+        <div className="absolute left-3 top-3 z-10 flex items-center gap-1 rounded-lg border border-slate-200 bg-white/95 p-1 shadow-sm backdrop-blur-sm">
+          <span className="px-1.5 text-[11px] font-medium text-slate-600">
+            高德地图 · {displayMode === "case" ? "精确案例点位" : "城市聚合"}
+          </span>
+          <div className="flex items-center rounded-md bg-slate-100 p-0.5" aria-label="地图底图切换">
+            <button
+              type="button"
+              aria-pressed={baseMapType === "standard"}
+              onClick={() => setBaseMapType("standard")}
+              className={`rounded px-2 py-1 text-[11px] font-medium transition-colors ${
+                baseMapType === "standard"
+                  ? "brand-gradient-button text-white"
+                  : "text-slate-600 hover:bg-white hover:text-slate-900"
+              }`}
+            >
+              标准地图
+            </button>
+            <button
+              type="button"
+              aria-pressed={baseMapType === "satellite"}
+              onClick={() => setBaseMapType("satellite")}
+              className={`rounded px-2 py-1 text-[11px] font-medium transition-colors ${
+                baseMapType === "satellite"
+                  ? "brand-gradient-button text-white"
+                  : "text-slate-600 hover:bg-white hover:text-slate-900"
+              }`}
+            >
+              卫星影像
+            </button>
+          </div>
         </div>
       )}
     </div>
