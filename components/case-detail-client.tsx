@@ -109,8 +109,10 @@ function makeChapters(item?: SmartCityCase): ReaderChapter[] {
   };
   const documentChapters: ReaderChapter[] = document.sections.map(
     (section, index) => ({
-      id: `document-${section.id}`,
-      eyebrow: `第 ${String(index + 1).padStart(2, "0")} 部分`,
+      id: `document-${section.id}-${index}`,
+      eyebrow: document.preservesSourceStructure
+        ? "原报告章节"
+        : `第 ${String(index + 1).padStart(2, "0")} 部分`,
       title: section.title,
       paragraphs: [section.summary, ...section.paragraphs].filter(Boolean),
       points: [
@@ -135,13 +137,15 @@ function makeChapters(item?: SmartCityCase): ReaderChapter[] {
     {
       id: "abstract",
       eyebrow: "导读",
-      title: "案例要点",
+      title: "案例导读",
       paragraphs: [document.standfirst],
       points: document.keyFindings,
-      note: `本文按 Digital X 七部分案例内容协议展示。当前证据等级为“${item.evidenceLevel}”。`,
+      note: document.preservesSourceStructure
+        ? "正文保留原报告章节与顺序。"
+        : `正文仅展示获得事实支撑的章节。当前证据等级为“${item.evidenceLevel}”。`,
     },
     ...documentChapters,
-    ...makeResearchChapters(item.researchReport),
+    ...(document.preservesSourceStructure ? [] : makeResearchChapters(item.researchReport)),
     sourceChapter,
   ];
 }
@@ -477,9 +481,9 @@ export function CaseDetailClient({
   const chapters = useMemo(() => makeChapters(item), [item]);
 
   useEffect(() => {
-    const frame = window.requestAnimationFrame(() => {
+    const frame = window.requestAnimationFrame(async () => {
       if (!initialItem) {
-        setItem(getLocalCases().find((current) => current.slug === slug && current.status === "已发布"));
+        setItem((await getLocalCases()).find((current) => current.slug === slug && current.status === "已发布"));
       }
       setLoaded(true);
     });
