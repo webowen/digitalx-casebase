@@ -15,7 +15,7 @@ import {
 import type { CaseParserResponse } from "@/lib/ai-case-parser";
 import { MAX_CASE_SOURCE_CHARACTERS } from "@/lib/ai-case-parser";
 import { cityStats } from "@/lib/case-analytics";
-import { getMigrationSummary } from "@/lib/benchmark-cases";
+import { publishedCaseAssets } from "@/lib/case-assets";
 import { getLocalCases, removeLocalCase, saveLocalCase } from "@/lib/local-cases";
 import { getPublishedCases } from "@/lib/mock-cases";
 import { parseReportFile } from "@/lib/report-file-import";
@@ -34,14 +34,11 @@ type FilterValue = "全部" | string;
 type DirectorySubgroup = { label: string; cases: SmartCityCase[] };
 type DirectoryGroup = { label: string; count: number; subgroups: DirectorySubgroup[] };
 
-const staticPublishedCases = getPublishedCases();
+const staticPublishedCases = [
+  ...publishedCaseAssets,
+  ...getPublishedCases().filter((item) => !publishedCaseAssets.some((asset) => asset.id === item.id)),
+];
 const evidenceLevels: EvidenceLevel[] = ["强", "中", "弱"];
-const mapLevelLabels: Record<MapLevel, string> = {
-  national: "全国",
-  province: "省域",
-  city: "城市",
-};
-
 function cleanCaseTitleCandidate(value?: string) {
   const title = normalizeProjectTitle(value).replace(/\s+/g, "").trim();
   if (!title) return "";
@@ -451,6 +448,9 @@ export default function MapWorkbench() {
   const [urlReady, setUrlReady] = useState(false);
   const [leftOpen, setLeftOpen] = useState(false);
   const [rightOpen, setRightOpen] = useState(false);
+  const [filterOpen, setFilterOpen] = useState(false);
+  const [aiScope, setAiScope] = useState<"case" | "map" | "all">("map");
+  const [aiQuestion, setAiQuestion] = useState("");
 
   const restoreUrl = useCallback(() => {
     const params = new URLSearchParams(window.location.search);
@@ -560,10 +560,6 @@ export default function MapWorkbench() {
       ];
     },
     [localCases],
-  );
-  const migrationSummary = useMemo(
-    () => getMigrationSummary(publishedCases),
-    [publishedCases],
   );
   const allYears = useMemo(
     () => Array.from(new Set(publishedCases.map((item) => item.year))).sort((a, b) => b - a),
@@ -912,11 +908,14 @@ export default function MapWorkbench() {
           />
           <span className="pointer-events-none absolute right-3 top-2.5 text-slate-400">⌕</span>
         </label>
-        <button type="button" onClick={() => setRightOpen(true)} className="flex h-10 items-center rounded-md border border-slate-200 px-3 text-sm lg:hidden">
+        <button type="button" onClick={() => setFilterOpen(true)} className="flex h-10 items-center rounded-md border border-slate-200 px-3 text-sm">
           筛选{activeFilterCount > 0 ? ` ${activeFilterCount}` : ""}
         </button>
-        <Link href="/admin" className="hidden shrink-0 rounded-md border border-slate-200 px-3 py-2 text-xs font-medium hover:bg-slate-50 sm:block">
-          管理端
+        <button type="button" onClick={() => setRightOpen(true)} className="flex h-10 items-center rounded-md border border-slate-200 px-3 text-sm lg:hidden">
+          Digital X AI
+        </button>
+        <Link href="/assets" className="hidden shrink-0 rounded-md border border-slate-200 px-3 py-2 text-xs font-medium hover:bg-slate-50 sm:block">
+          案例资产
         </Link>
         <button
           type="button"
@@ -929,6 +928,21 @@ export default function MapWorkbench() {
           导入报告
         </button>
       </header>
+
+      {filterOpen && (
+        <div className="fixed inset-0 z-[85] flex items-start justify-center bg-slate-950/30 p-4 pt-20" onMouseDown={() => setFilterOpen(false)}>
+          <section className="w-full max-w-xl rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl" onMouseDown={(event) => event.stopPropagation()}>
+            <div className="flex items-center justify-between"><div><p className="brand-eyebrow text-[10px] font-bold">FILTERS</p><h2 className="mt-1 text-lg font-semibold">筛选案例</h2></div><button type="button" onClick={() => setFilterOpen(false)} className="rounded p-2 text-slate-500 hover:bg-slate-100">×</button></div>
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              <label className="text-xs text-slate-500">应用分类<select value={category} onChange={(event) => setCategory(event.target.value as CaseCategory | "全部")} className="mt-1 h-10 w-full rounded-md border border-slate-200 bg-white px-2.5 text-xs"><option value="全部">全部分类</option>{categories.map((item) => <option key={item}>{item}</option>)}</select></label>
+              <label className="text-xs text-slate-500">地区<select value={activeProvince} onChange={(event) => { const value = event.target.value; setActiveProvince(value); setActiveCity("全部"); setMapLevel(value === "全部" ? "national" : "province"); }} className="mt-1 h-10 w-full rounded-md border border-slate-200 bg-white px-2.5 text-xs"><option value="全部">全国</option>{provinces.map((item) => <option key={item}>{item}</option>)}</select></label>
+              <label className="text-xs text-slate-500">年份<select value={year} onChange={(event) => setYear(event.target.value)} className="mt-1 h-10 w-full rounded-md border border-slate-200 bg-white px-2.5 text-xs"><option value="全部">全部年份</option>{allYears.map((item) => <option key={item}>{item}</option>)}</select></label>
+              <label className="text-xs text-slate-500">证据等级<select value={evidenceLevel} onChange={(event) => setEvidenceLevel(event.target.value)} className="mt-1 h-10 w-full rounded-md border border-slate-200 bg-white px-2.5 text-xs"><option value="全部">全部证据</option>{evidenceLevels.map((item) => <option key={item}>{item}</option>)}</select></label>
+            </div>
+            <div className="mt-5 flex justify-between"><button type="button" onClick={clearFilters} className="text-xs text-slate-500 hover:text-slate-900">清空筛选</button><button type="button" onClick={() => setFilterOpen(false)} className="brand-gradient-button rounded-full px-5 py-2 text-xs font-semibold text-white">查看 {visibleCases.length} 个案例</button></div>
+          </section>
+        </div>
+      )}
 
       {reportImportOpen && (
         <div className="fixed inset-0 z-[90] flex items-center justify-center bg-slate-950/35 p-4">
@@ -1179,128 +1193,25 @@ export default function MapWorkbench() {
         <aside className={`workbench-panel workbench-panel-right absolute inset-y-0 right-0 z-40 flex w-[min(320px,88vw)] flex-col transition-transform lg:static lg:w-auto lg:translate-x-0 ${rightOpen ? "translate-x-0" : "translate-x-full"}`}>
           <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
             <div>
-              <p className="brand-eyebrow text-[10px] font-bold tracking-[0.14em]">TOOLS</p>
-              <h2 className="mt-0.5 text-base font-semibold">筛选与分析</h2>
+              <p className="brand-eyebrow text-[10px] font-bold tracking-[0.14em]">RESEARCH ASSISTANT</p>
+              <h2 className="mt-0.5 text-base font-semibold">Digital X AI</h2>
             </div>
             <button type="button" onClick={() => setRightOpen(false)} className="rounded-md p-2 text-slate-500 lg:hidden">×</button>
           </div>
-          <div className="min-h-0 flex-1 space-y-5 overflow-y-auto p-4">
-            <section>
-              <div className="mb-2 flex items-center justify-between">
-                <h3 className="text-xs font-semibold text-slate-800">筛选条件</h3>
-                <button type="button" onClick={clearFilters} className="brand-link text-[11px] hover:underline">清空{activeFilterCount > 0 ? ` ${activeFilterCount}` : ""}</button>
-              </div>
-              <div className="space-y-2">
-                <label className="block">
-                  <span className="mb-1 block text-[11px] text-slate-500">应用分类</span>
-                  <select value={category} onChange={(event) => setCategory(event.target.value as CaseCategory | "全部")} className="h-10 w-full rounded-md border border-slate-200 bg-white px-2.5 text-xs outline-none focus:border-teal-500">
-                    <option value="全部">全部分类</option>
-                    {categories.map((item) => <option key={item}>{item}</option>)}
-                  </select>
-                </label>
-                <label className="block">
-                  <span className="mb-1 block text-[11px] text-slate-500">省级范围</span>
-                  <select
-                    value={activeProvince}
-                    onChange={(event) => {
-                      const value = event.target.value;
-                      setActiveProvince(value);
-                      setActiveCity("全部");
-                      setSelectedCaseSlug("");
-                      setDocumentOpen(false);
-                      setMapLevel(value === "全部" ? "national" : "province");
-                    }}
-                    className="h-10 w-full rounded-md border border-slate-200 bg-white px-2.5 text-xs outline-none focus:border-teal-500"
-                  >
-                    <option value="全部">全国</option>
-                    {provinces.map((item) => <option key={item}>{item}</option>)}
-                  </select>
-                </label>
-                <div className="grid grid-cols-2 gap-2">
-                  <label>
-                    <span className="mb-1 block text-[11px] text-slate-500">案例年份</span>
-                    <select value={year} onChange={(event) => setYear(event.target.value)} className="h-10 w-full rounded-md border border-slate-200 bg-white px-2 text-xs outline-none focus:border-teal-500">
-                      <option value="全部">全部年份</option>
-                      {allYears.map((item) => <option key={item} value={String(item)}>{item}</option>)}
-                    </select>
-                  </label>
-                  <label>
-                    <span className="mb-1 block text-[11px] text-slate-500">证据等级</span>
-                    <select value={evidenceLevel} onChange={(event) => setEvidenceLevel(event.target.value)} className="h-10 w-full rounded-md border border-slate-200 bg-white px-2 text-xs outline-none focus:border-teal-500">
-                      <option value="全部">全部证据</option>
-                      {evidenceLevels.map((item) => <option key={item}>{item}</option>)}
-                    </select>
-                  </label>
-                </div>
-              </div>
-            </section>
-            <section className="border-t border-slate-200 pt-4">
-              <h3 className="text-xs font-semibold text-slate-800">当前结果</h3>
-              <div className="mt-3 grid grid-cols-2 gap-2">
-                {[
-                  ["案例", visibleCases.length],
-                  ["城市", cityStats(mappableVisibleCases).length],
-                  ["强证据", visibleCases.filter((item) => item.evidenceLevel === "强").length],
-                  ["地图层级", mapLevelLabels[mapLevel]],
-                ].map(([label, value]) => (
-                  <div key={label} className="brand-stat-card rounded-xl p-3">
-                    <strong className="block text-lg">{value}</strong>
-                    <span className="mt-0.5 block text-[10px] text-slate-500">{label}</span>
-                  </div>
-                ))}
-              </div>
-            </section>
-            <section className="border-t border-slate-200 pt-4">
-              <div className="flex items-center justify-between">
-                <h3 className="text-xs font-semibold text-slate-800">内容迁移</h3>
-                <span className="brand-eyebrow text-[10px] font-bold">
-                  V1.5 PROTOCOL
-                </span>
-              </div>
-              <div className="brand-soft-card mt-2 rounded-xl p-3">
-                <div className="flex items-end justify-between">
-                  <strong className="text-xl text-slate-900">
-                    {migrationSummary.migrated}/{migrationSummary.total}
-                  </strong>
-                  <span className="text-[10px] text-slate-500">协议迁移</span>
-                </div>
-                <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-200">
-                  <span
-                    className="brand-gradient-button block h-full rounded-full"
-                    style={{
-                      width: `${Math.round(
-                        (migrationSummary.migrated /
-                          Math.max(1, migrationSummary.total)) *
-                          100,
-                      )}%`,
-                    }}
-                  />
-                </div>
-                <p className="mt-2 text-[10px] leading-4 text-slate-600">
-                  {migrationSummary.total === 0
-                    ? "模拟案例已清空，等待通过“导入报告”录入真实成熟案例。"
-                    : `全部案例已进入原生七章协议；其中 ${migrationSummary.benchmarkDrafts} 个标杆样稿进入终审，${migrationSummary.batchMigrated} 个存量案例仍待扩写、补证据和人工批准。`}
-                </p>
-              </div>
-            </section>
-            <section className="border-t border-slate-200 pt-4">
-              <h3 className="text-xs font-semibold text-slate-800">地图图层</h3>
-              <div className="mt-2 space-y-2 text-xs text-slate-600">
-                <div className="rounded-md border border-slate-200 px-3 py-2.5">
-                  <strong className="block text-slate-800">精确案例点位</strong>
-                  <span className="mt-1 block text-[10px] leading-4 text-slate-500">
-                    省级案例使用省会锚点，市级和项目级案例使用已核验坐标；低置信度点位仍需人工复核。
-                  </span>
-                </div>
-              </div>
-            </section>
+          <div className="flex min-h-0 flex-1 flex-col p-4">
             <section className="brand-soft-card rounded-xl p-3">
-              <p className="brand-eyebrow text-[10px] font-bold tracking-wide">SHAREABLE VIEW</p>
-              <h3 className="mt-1 text-sm font-semibold">当前工作台状态可分享</h3>
-              <p className="mt-1 text-xs leading-5 text-slate-600">
-                搜索、筛选、目录方式、地图层级与所选案例均写入 URL；刷新、前进后退或复制网址后可以恢复。
-              </p>
+              <p className="text-[11px] font-semibold text-slate-700">研究作用域</p>
+              <div className="mt-2 grid grid-cols-3 gap-1 rounded-lg bg-white p-1 text-[10px]">
+                {([['case','当前案例'],['map','地图结果'],['all','全部案例']] as const).map(([value, label]) => <button key={value} type="button" disabled={value === 'case' && !selectedCase} onClick={() => setAiScope(value)} className={`rounded-md px-1 py-2 ${aiScope === value ? 'bg-slate-900 text-white' : 'text-slate-500 hover:bg-slate-100 disabled:opacity-40'}`}>{label}</button>)}
+              </div>
+              <p className="mt-2 text-[10px] leading-4 text-slate-500">{aiScope === 'case' ? selectedCase?.title || '请先选择一个案例' : aiScope === 'map' ? `当前地图筛选结果：${visibleCases.length} 个案例` : `公开资产库：${publishedCases.length} 个案例`}</p>
             </section>
+            <section className="mt-4 flex-1 rounded-xl border border-slate-200 bg-white p-3">
+              <p className="text-xs font-semibold text-slate-800">基于真实案例资产提问</p>
+              <p className="mt-2 text-[11px] leading-5 text-slate-500">本轮已建立上下文结构。复杂 RAG 尚未接入，AI 不会把未核验信息写回案例资产。</p>
+              <div className="mt-4 space-y-2">{['比较当前案例的建设逻辑','总结当前地图结果的共性','寻找可复用的平台能力'].map((text) => <button key={text} type="button" onClick={() => setAiQuestion(text)} className="block w-full rounded-lg border border-slate-200 px-3 py-2 text-left text-[11px] text-slate-600 hover:border-teal-300 hover:bg-teal-50">{text}</button>)}</div>
+            </section>
+            <div className="mt-3 rounded-xl border border-slate-200 bg-white p-2"><textarea value={aiQuestion} onChange={(event) => setAiQuestion(event.target.value)} placeholder="向 Digital X AI 提问…" className="h-20 w-full resize-none p-2 text-xs outline-none"/><button type="button" disabled={!aiQuestion.trim()} className="brand-gradient-button w-full rounded-full py-2 text-xs font-semibold text-white disabled:opacity-40">发送（RAG 待接入）</button></div>
           </div>
         </aside>
       </section>
