@@ -126,9 +126,9 @@ test("renders the V1.4 map case workbench as the default home page", async () =>
   assert.match(html, /按地区/);
   assert.match(html, /按专题/);
   assert.match(html, /导入报告/);
-  assert.match(html, /筛选与分析/);
-  assert.match(html, /精确案例点位/);
-  assert.match(html, /当前工作台状态可分享/);
+  assert.match(html, /Digital X AI/);
+  assert.match(html, /当前地图筛选结果/);
+  assert.match(html, /案例资产/);
   assert.match(html, /选择省份/);
 });
 
