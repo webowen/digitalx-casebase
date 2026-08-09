@@ -2,6 +2,14 @@
 
 本文档只记录对用户、业务流程、数据模型、部署方式或开发交接有意义的变化。
 
+## [Unreleased] - Case Assets V2
+
+- 将 `knowledge-base/cases/` 建立为真实案例母库，并新增 Frontmatter 构建期读取。
+- 首个罗湖区 CIM 案例从资产目录进入公开地图和案例详情。
+- 首页右栏调整为 Digital X AI，筛选迁移到顶部轻量弹层。
+- 新增 `/assets` 案例资产工作台和 `/lab/ai-case-studio` 封存入口。
+- 保留 `lib/mock-cases.ts` 和浏览器本地案例作为 legacy/dev 兼容能力。
+
 ## [Unreleased] - 2026-08-03
 
 ### 轻量导入确认链路
