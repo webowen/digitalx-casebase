@@ -33,7 +33,7 @@ for (const directory of directories.filter((item) => item.isDirectory())) {
   const sourcePath = path.join(root, directory.name, "sources", "source.md");
   let imageCount = 0;
   let sourceCount = 0;
-  try { imageCount = (await readdir(imageDirectory, { withFileTypes: true })).filter((item) => item.isFile()).length; } catch {}
+  try { imageCount = (await readdir(imageDirectory, { withFileTypes: true })).filter((item) => item.isFile() && !item.name.startsWith(".")).length; } catch {}
   try { sourceCount = (await readFile(sourcePath, "utf8")).split(/\r?\n/).filter((line) => /^\d+[.)]\s/.test(line.trim())).length; } catch {}
   const tags = String(data.tags || "").split(",").map((item) => item.trim()).filter(Boolean);
   assets.push({
