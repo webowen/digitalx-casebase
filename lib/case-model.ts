@@ -205,7 +205,7 @@ export type CaseProductionStage =
 export type CaseProductionPriority = "P0" | "P1" | "P2";
 
 export type CaseProductionProfile = {
-  release: "V1.5.0-beta.1" | "V1.5.0-beta.2";
+  release: "V1.5.0-beta.1" | "V1.5.0-beta.2" | "V1.5.0-beta.3";
   waveId: string;
   waveLabel: string;
   priority: CaseProductionPriority;
@@ -264,7 +264,7 @@ export type CasePipelineStage = {
 };
 
 export type CasePipelineRun = {
-  version: "1.0" | "1.1";
+  version: "1.0" | "1.1" | "1.2";
   startedAt: string;
   completedAt: string;
   status: "completed" | "degraded" | "blocked";
@@ -402,6 +402,14 @@ export type SmartCityCase = {
   parsePipeline?: CasePipelineRun;
   importedAt?: string;
   updatedAt?: string;
+  asset?: {
+    contentStatus: "candidate" | "published";
+    casePath: string;
+    imageCount: number;
+    sourceCount: number;
+    poiStatus: "verified" | "pending";
+    lastVerifiedAt: string;
+  };
 };
 
 export const categories: CaseCategory[] = [
@@ -448,8 +456,6 @@ const legacyCategoryMap: Record<string, CaseCategory> = {
 export function normalizeCaseCategory(value: unknown): CaseCategory {
   if (typeof value !== "string") return "城市治理";
   const category = value.trim();
-  if (categories.includes(category as CaseCategory)) {
-    return category as CaseCategory;
-  }
+  if (categories.includes(category as CaseCategory)) return category as CaseCategory;
   return legacyCategoryMap[category] ?? "城市治理";
 }
