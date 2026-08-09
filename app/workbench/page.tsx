@@ -3,7 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
-import { AMapCaseMap, type AMapCasePoint } from "@/components/amap-case-map";
+import { AMapCaseMap, type AMapCasePoint, type MapAdministrativeFocus } from "@/components/amap-case-map";
 import { CaseDocument } from "@/components/case-document";
 import {
   categories,
@@ -12,13 +12,23 @@ import {
   type EvidenceLevel,
   type SmartCityCase,
 } from "@/lib/case-model";
+import type { CaseParserResponse } from "@/lib/ai-case-parser";
+import { MAX_CASE_SOURCE_CHARACTERS } from "@/lib/ai-case-parser";
 import { cityStats } from "@/lib/case-analytics";
 import { getMigrationSummary } from "@/lib/benchmark-cases";
-import { getLocalCases, removeLocalCase } from "@/lib/local-cases";
+import { getLocalCases, removeLocalCase, saveLocalCase } from "@/lib/local-cases";
 import { getPublishedCases } from "@/lib/mock-cases";
+import { parseReportFile } from "@/lib/report-file-import";
+import { createCaseFromImportedReport, createCaseFromReport } from "@/lib/report-import";
+import { normalizeProjectTitle } from "@/lib/ai-case-native-protocol";
+import {
+  getAdministrativeFocusPlace,
+  getCityOptions,
+  provinceOptions,
+} from "@/lib/china-administrative-options";
 
 type DirectoryMode = "category" | "region" | "topic";
-type MapLevel = "national" | "province" | "city" | "project";
+type MapLevel = "national" | "province" | "city";
 type FilterValue = "全部" | string;
 
 type DirectorySubgroup = { label: string; cases: SmartCityCase[] };
@@ -30,8 +40,41 @@ const mapLevelLabels: Record<MapLevel, string> = {
   national: "全国",
   province: "省域",
   city: "城市",
-  project: "项目",
 };
+
+function cleanCaseTitleCandidate(value?: string) {
+  const title = normalizeProjectTitle(value).replace(/\s+/g, "").trim();
+  if (!title) return "";
+  if (/^(DIGITALX|CASEREPORT|EXECUTIVESUMMARY|案例摘要|案例研究版|编制日期)/i.test(title)) return "";
+  if (/^[一二三四五六七八九十]+[、.．]/.test(title)) return "";
+  if (/^(建设背景|项目概况|应用成效|建设思路|解决方案)/.test(title)) return "";
+  return title;
+}
+
+function recoverCaseTitleFromReport(value?: string) {
+  const lines = (value || "")
+    .split("\n")
+    .map((line) => line.replace(/^#{1,6}\s*/, "").replace(/\*\*/g, "").trim())
+    .filter(Boolean)
+    .filter((line) => !/^(DIGITAL X|CASE REPORT|EXECUTIVE SUMMARY|案例摘要|案例研究版|编制日期)/i.test(line));
+  const topLines = lines.slice(0, 12);
+  for (let index = 0; index < topLines.length; index += 1) {
+    const joined = `${topLines[index]}${topLines[index + 1] || ""}`.replace(/\s+/g, "");
+    const candidate = cleanCaseTitleCandidate(joined);
+    if (candidate && /平台|系统|项目|工程|中心|应用/.test(candidate)) return candidate;
+  }
+  return "";
+}
+
+function displayCaseTitle(item: SmartCityCase) {
+  return (
+    cleanCaseTitleCandidate(item.title) ||
+    cleanCaseTitleCandidate(item.identity?.canonicalTitle) ||
+    cleanCaseTitleCandidate(item.sourceTitle) ||
+    recoverCaseTitleFromReport(item.researchReport) ||
+    item.title
+  );
+}
 
 const topics = [
   {
@@ -39,18 +82,16 @@ const topics = [
     match: (item: SmartCityCase) => ["数字政府", "城市治理"].includes(item.category),
   },
   {
-    label: "规划与韧性",
+    label: "规划韧性",
     match: (item: SmartCityCase) => ["规划建设", "市政韧性"].includes(item.category),
   },
   {
     label: "产业发展",
-    match: (item: SmartCityCase) =>
-      ["工业园区", "农业农村", "商贸物流"].includes(item.category),
+    match: (item: SmartCityCase) => ["工业园区", "农业农村", "商贸物流"].includes(item.category),
   },
   {
     label: "公共服务",
-    match: (item: SmartCityCase) =>
-      ["交通出行", "生态低碳", "文旅体育", "公共民生"].includes(item.category),
+    match: (item: SmartCityCase) => ["交通出行", "生态低碳", "文旅体育", "公共民生"].includes(item.category),
   },
   {
     label: "数据基础",
@@ -99,8 +140,7 @@ function buildDirectory(cases: SmartCityCase[], mode: DirectoryMode): DirectoryG
             .map(([label, groupedCases]) => ({ label, cases: groupedCases }))
             .sort((a, b) => b.cases.length - a.cases.length),
         };
-      })
-      .filter((group) => group.count > 0);
+      });
   }
   if (mode === "region") {
     return Array.from(groupBy(cases, (item) => item.province))
@@ -130,34 +170,37 @@ function buildDirectory(cases: SmartCityCase[], mode: DirectoryMode): DirectoryG
 function DirectoryBranch({
   group,
   selectedCaseId,
-  initiallyOpen,
   onSelectCase,
   onOpenCaseMenu,
+  open,
+  onOpenChange,
+  openSubgroups,
+  onSubgroupOpenChange,
 }: {
   group: DirectoryGroup;
   selectedCaseId?: string;
-  initiallyOpen: boolean;
   onSelectCase: (item: SmartCityCase) => void;
   onOpenCaseMenu: (event: ReactMouseEvent<HTMLButtonElement>, item: SmartCityCase) => void;
+  open: boolean;
+  onOpenChange: (key: string, open: boolean) => void;
+  openSubgroups: Set<string>;
+  onSubgroupOpenChange: (key: string, open: boolean) => void;
 }) {
-  const groupRef = useRef<HTMLDetailsElement>(null);
-  const [open, setOpen] = useState(initiallyOpen);
   const containsSelection = group.subgroups.some((subgroup) =>
     subgroup.cases.some((item) => item.id === selectedCaseId),
   );
 
   useEffect(() => {
     if (containsSelection) {
-      const frame = window.requestAnimationFrame(() => setOpen(true));
+      const frame = window.requestAnimationFrame(() => onOpenChange(group.label, true));
       return () => window.cancelAnimationFrame(frame);
     }
-  }, [containsSelection]);
+  }, [containsSelection, group.label, onOpenChange]);
 
   return (
     <details
-      ref={groupRef}
       open={open}
-      onToggle={(event) => setOpen(event.currentTarget.open)}
+      onToggle={(event) => onOpenChange(group.label, event.currentTarget.open)}
       className="group/tree"
     >
       <summary className="flex cursor-pointer list-none items-center gap-2 rounded-md px-2 py-2 text-sm font-semibold text-slate-800 hover:bg-slate-100">
@@ -175,8 +218,14 @@ function DirectoryBranch({
             selectedCaseId={selectedCaseId}
             onSelectCase={onSelectCase}
             onOpenCaseMenu={onOpenCaseMenu}
+            branchKey={`${group.label}::${subgroup.label}`}
+            open={openSubgroups.has(`${group.label}::${subgroup.label}`)}
+            onOpenChange={onSubgroupOpenChange}
           />
         ))}
+        {group.subgroups.length === 0 && (
+          <div className="px-2 py-2 text-[11px] text-slate-400">暂无案例</div>
+        )}
       </div>
     </details>
   );
@@ -187,31 +236,34 @@ function DirectorySubBranch({
   selectedCaseId,
   onSelectCase,
   onOpenCaseMenu,
+  branchKey,
+  open,
+  onOpenChange,
 }: {
   subgroup: DirectorySubgroup;
   selectedCaseId?: string;
   onSelectCase: (item: SmartCityCase) => void;
   onOpenCaseMenu: (event: ReactMouseEvent<HTMLButtonElement>, item: SmartCityCase) => void;
+  branchKey: string;
+  open: boolean;
+  onOpenChange: (key: string, open: boolean) => void;
 }) {
-  const detailsRef = useRef<HTMLDetailsElement>(null);
   const activeRef = useRef<HTMLButtonElement>(null);
-  const [open, setOpen] = useState(false);
   const containsSelection = subgroup.cases.some((item) => item.id === selectedCaseId);
 
   useEffect(() => {
     if (!containsSelection) return;
     const frame = window.requestAnimationFrame(() => {
-      setOpen(true);
+      onOpenChange(branchKey, true);
       activeRef.current?.scrollIntoView({ block: "nearest" });
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [containsSelection, selectedCaseId]);
+  }, [branchKey, containsSelection, onOpenChange, selectedCaseId]);
 
   return (
     <details
-      ref={detailsRef}
       open={open}
-      onToggle={(event) => setOpen(event.currentTarget.open)}
+      onToggle={(event) => onOpenChange(branchKey, event.currentTarget.open)}
     >
       <summary className="flex cursor-pointer list-none items-center gap-2 rounded-md px-2 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50">
         <span className="text-[9px] text-slate-400">◆</span>
@@ -238,7 +290,12 @@ function DirectorySubBranch({
                 className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full"
                 style={{ backgroundColor: categoryColors[item.category] }}
               />
-              <span>{item.title}</span>
+              <span
+                className="min-w-0 flex-1 break-words [overflow-wrap:anywhere]"
+                title={displayCaseTitle(item)}
+              >
+                {displayCaseTitle(item)}
+              </span>
             </button>
           );
         })}
@@ -260,6 +317,28 @@ function DirectoryTree({
   onSelectCase: (item: SmartCityCase) => void;
   onDeleteCase: (item: SmartCityCase) => void;
 }) {
+  const [openGroups, setOpenGroups] = useState<Set<string>>(
+    () => new Set(groups.slice(0, 2).map((group) => group.label)),
+  );
+  const [openSubgroups, setOpenSubgroups] = useState<Set<string>>(() => new Set());
+  const updateGroupOpen = useCallback((key: string, open: boolean) => {
+    setOpenGroups((current) => {
+      if (current.has(key) === open) return current;
+      const next = new Set(current);
+      if (open) next.add(key);
+      else next.delete(key);
+      return next;
+    });
+  }, []);
+  const updateSubgroupOpen = useCallback((key: string, open: boolean) => {
+    setOpenSubgroups((current) => {
+      if (current.has(key) === open) return current;
+      const next = new Set(current);
+      if (open) next.add(key);
+      else next.delete(key);
+      return next;
+    });
+  }, []);
   const [contextMenu, setContextMenu] = useState<{
     item: SmartCityCase;
     x: number;
@@ -289,12 +368,10 @@ function DirectoryTree({
       if (!deletableCaseIds.has(item.id)) return;
       event.preventDefault();
       event.stopPropagation();
-      const menuWidth = 176;
-      const menuHeight = 48;
       setContextMenu({
         item,
-        x: Math.min(event.clientX, window.innerWidth - menuWidth - 8),
-        y: Math.min(event.clientY, window.innerHeight - menuHeight - 8),
+        x: Math.max(8, Math.min(event.clientX, window.innerWidth - 184)),
+        y: Math.max(8, Math.min(event.clientY, window.innerHeight - 56)),
       });
     },
     [deletableCaseIds],
@@ -304,19 +381,23 @@ function DirectoryTree({
     if (!contextMenu) return;
     const { item } = contextMenu;
     setContextMenu(null);
-    if (!window.confirm(`确认删除“${item.title}”吗？删除后无法恢复。`)) return;
-    onDeleteCase(item);
+    if (window.confirm(`确认删除“${item.title}”吗？删除后无法恢复。`)) {
+      onDeleteCase(item);
+    }
   }, [contextMenu, onDeleteCase]);
 
   return (
     <>
       <div className="space-y-1 px-2 pb-5">
-        {groups.map((group, index) => (
+        {groups.map((group) => (
           <DirectoryBranch
             key={group.label}
             group={group}
             selectedCaseId={selectedCaseId}
-            initiallyOpen={index < 2}
+            open={openGroups.has(group.label)}
+            onOpenChange={updateGroupOpen}
+            openSubgroups={openSubgroups}
+            onSubgroupOpenChange={updateSubgroupOpen}
             onSelectCase={onSelectCase}
             onOpenCaseMenu={openCaseMenu}
           />
@@ -328,8 +409,8 @@ function DirectoryTree({
       {contextMenu && (
         <div
           role="menu"
-          aria-label={`${contextMenu.item.title}操作菜单`}
-          className="fixed z-[100] w-44 rounded-lg border border-slate-200 bg-white p-1.5 shadow-xl"
+          aria-label={`管理${contextMenu.item.title}`}
+          className="fixed z-[120] w-44 rounded-lg border border-slate-200 bg-white p-1 shadow-xl"
           style={{ left: contextMenu.x, top: contextMenu.y }}
           onClick={(event) => event.stopPropagation()}
         >
@@ -337,9 +418,8 @@ function DirectoryTree({
             type="button"
             role="menuitem"
             onClick={confirmDelete}
-            className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm font-medium text-red-600 hover:bg-red-50 focus:bg-red-50 focus:outline-none"
+            className="flex w-full items-center rounded-md px-3 py-2 text-left text-xs font-medium text-red-600 hover:bg-red-50 focus:bg-red-50 focus:outline-none"
           >
-            <span aria-hidden="true">🗑</span>
             删除案例
           </button>
         </div>
@@ -359,7 +439,15 @@ export default function MapWorkbench() {
   const [activeProvince, setActiveProvince] = useState<FilterValue>("全部");
   const [activeCity, setActiveCity] = useState<FilterValue>("全部");
   const [selectedCaseSlug, setSelectedCaseSlug] = useState("");
+  const [caseFocusRequest, setCaseFocusRequest] = useState(0);
   const [documentOpen, setDocumentOpen] = useState(false);
+  const [reportImportOpen, setReportImportOpen] = useState(false);
+  const [reportImportText, setReportImportText] = useState("");
+  const [reportImportMessage, setReportImportMessage] = useState("");
+  const [reportImportFileName, setReportImportFileName] = useState("");
+  const [reportImportBusy, setReportImportBusy] = useState(false);
+  const [reportImportDraft, setReportImportDraft] = useState<SmartCityCase | null>(null);
+  const [reportImportWarnings, setReportImportWarnings] = useState<string[]>([]);
   const [urlReady, setUrlReady] = useState(false);
   const [leftOpen, setLeftOpen] = useState(false);
   const [rightOpen, setRightOpen] = useState(false);
@@ -377,7 +465,7 @@ export default function MapWorkbench() {
     const caseSlug = params.get("case") ?? "";
     setSelectedCaseSlug(caseSlug);
     setDocumentOpen(Boolean(caseSlug) && params.get("view") === "document");
-    if (["national", "province", "city", "project"].includes(level ?? "")) {
+    if (["national", "province", "city"].includes(level ?? "")) {
       setMapLevel(level as MapLevel);
     }
     if (["category", "region", "topic"].includes(directory ?? "")) {
@@ -396,7 +484,34 @@ export default function MapWorkbench() {
   }, [restoreUrl]);
 
   useEffect(() => {
-    const syncLocalCases = () => setLocalCases(getLocalCases());
+    const syncLocalCases = async () => setLocalCases((await getLocalCases()).map((item) => {
+      if (!item.researchReport) return item;
+      const inferred = createCaseFromReport(item.researchReport);
+      const hasMorePreciseLocation = inferred.locationLevel === "区县级" && item.locationLevel !== "园区/项目点";
+      const needsTitleRepair = !cleanCaseTitleCandidate(item.title);
+      return hasMorePreciseLocation || needsTitleRepair
+        ? {
+            ...item,
+            ...(hasMorePreciseLocation ? {
+              province: inferred.province,
+              city: inferred.city,
+              district: inferred.district,
+              lng: inferred.lng,
+              lat: inferred.lat,
+              locationLevel: inferred.locationLevel,
+              locationMethod: inferred.locationMethod,
+              locationConfidence: inferred.locationConfidence,
+              locationReason: inferred.locationReason,
+              coverageType: inferred.coverageType,
+            } : {}),
+            ...(needsTitleRepair ? {
+              title: inferred.title,
+              sourceTitle: inferred.title,
+              identity: inferred.identity,
+            } : {}),
+          }
+        : item;
+    }));
     syncLocalCases();
     window.addEventListener("digitalx-cases-updated", syncLocalCases);
     window.addEventListener("storage", syncLocalCases);
@@ -454,10 +569,7 @@ export default function MapWorkbench() {
     () => Array.from(new Set(publishedCases.map((item) => item.year))).sort((a, b) => b - a),
     [publishedCases],
   );
-  const provinces = useMemo(
-    () => Array.from(new Set(publishedCases.map((item) => item.province))).sort(),
-    [publishedCases],
-  );
+  const provinces = provinceOptions;
   const filteredByControls = useMemo(
     () =>
       publishedCases.filter(
@@ -500,9 +612,17 @@ export default function MapWorkbench() {
     [visibleCases],
   );
   const cities = useMemo(() => cityStats(mappableFilteredCases), [mappableFilteredCases]);
+  const cityOptions = useMemo(
+    () => (activeProvince === "全部" ? [] : getCityOptions(activeProvince)),
+    [activeProvince],
+  );
   const directory = useMemo(
     () => buildDirectory(visibleCases, directoryMode),
     [directoryMode, visibleCases],
+  );
+  const deletableCaseIds = useMemo(
+    () => new Set(localCases.map((item) => item.id)),
+    [localCases],
   );
   const selectedCase = useMemo(
     () => publishedCases.find((item) => item.slug === selectedCaseSlug) ?? null,
@@ -515,15 +635,11 @@ export default function MapWorkbench() {
         : null,
     [selectedCase, visibleCases],
   );
-  const effectiveSelectedCase = useMemo(
-    () => activeSelectedCase ?? visibleCases[0] ?? null,
-    [activeSelectedCase, visibleCases],
-  );
   const casePoints = useMemo<AMapCasePoint[]>(
     () =>
       mappableVisibleCases.map((item) => ({
         id: item.id,
-        title: item.title,
+        title: displayCaseTitle(item),
         city: item.city,
         province: item.province,
         category: item.category,
@@ -539,32 +655,33 @@ export default function MapWorkbench() {
       })),
     [mappableVisibleCases],
   );
-  const deletableCaseIds = useMemo(
-    () => new Set(localCases.map((item) => item.id)),
-    [localCases],
+  const administrativeFocus = useMemo<MapAdministrativeFocus>(
+    () => {
+      const province = activeProvince !== "全部" ? activeProvince : undefined;
+      const city = activeCity !== "全部" ? activeCity : undefined;
+      const focusPlace = getAdministrativeFocusPlace(province, city);
+      return {
+        level: mapLevel,
+        province,
+        city,
+        center: focusPlace?.center,
+        zoom: focusPlace?.zoom,
+      };
+    },
+    [activeCity, activeProvince, mapLevel],
   );
-
   const focusCaseOnMap = useCallback((item: SmartCityCase) => {
     setSelectedCaseSlug(item.slug);
+    setCaseFocusRequest((request) => request + 1);
     setDocumentOpen(false);
-    setMapLevel("project");
     setLeftOpen(false);
   }, []);
-
-  const deleteCase = useCallback((item: SmartCityCase) => {
-    removeLocalCase(item.id);
-    if (selectedCaseSlug !== item.slug) return;
-    setSelectedCaseSlug("");
-    setDocumentOpen(false);
-    setMapLevel(activeCity === "全部" ? "national" : "city");
-  }, [activeCity, selectedCaseSlug]);
 
   const selectCasePoint = useCallback((id: string) => {
     const item = publishedCases.find((entry) => entry.id === id);
     if (!item) return;
     setSelectedCaseSlug(item.slug);
     setDocumentOpen(true);
-    setMapLevel("project");
   }, [publishedCases]);
 
   const selectCity = useCallback((city: string) => {
@@ -579,7 +696,7 @@ export default function MapWorkbench() {
     const firstCase = filteredByControls.find((item) => item.city === city);
     setActiveCity(city);
     setActiveProvince(firstCase?.province ?? "全部");
-    setSelectedCaseSlug(firstCase?.slug ?? "");
+    setSelectedCaseSlug("");
     setDocumentOpen(false);
     setMapLevel("city");
   }, [filteredByControls]);
@@ -595,16 +712,9 @@ export default function MapWorkbench() {
       setActiveCity("全部");
       setSelectedCaseSlug("");
       setDocumentOpen(false);
-      if (activeProvince === "全部" && effectiveSelectedCase) {
-        setActiveProvince(effectiveSelectedCase.province);
-      }
-    } else if (level === "city" && effectiveSelectedCase) {
-      setActiveProvince(effectiveSelectedCase.province);
-      setActiveCity(effectiveSelectedCase.city);
+    } else if (level === "city") {
       setSelectedCaseSlug("");
       setDocumentOpen(false);
-    } else if (level === "project" && effectiveSelectedCase) {
-      focusCaseOnMap(effectiveSelectedCase);
     }
   }
 
@@ -624,6 +734,136 @@ export default function MapWorkbench() {
     setDocumentOpen(false);
   }, []);
 
+  const deleteCase = useCallback(async (item: SmartCityCase) => {
+    const nextCases = await removeLocalCase(item.id);
+    setLocalCases(nextCases);
+    if (selectedCaseSlug === item.slug) {
+      setSelectedCaseSlug("");
+      setDocumentOpen(false);
+      setMapLevel("national");
+      setActiveProvince("全部");
+      setActiveCity("全部");
+    }
+  }, [selectedCaseSlug]);
+
+  const publishImportedCase = useCallback(async (importedCase: SmartCityCase) => {
+    const confirmedCase: SmartCityCase = {
+      ...importedCase,
+      status: "已发布",
+      identity: importedCase.identity ? { ...importedCase.identity, canonicalTitle: importedCase.title, needsReview: false } : importedCase.identity,
+      updatedAt: new Date().toISOString(),
+    };
+    const nextCases = await saveLocalCase(confirmedCase);
+    setLocalCases(nextCases);
+    setSelectedCaseSlug(confirmedCase.slug);
+    setMapLevel("city");
+    setDocumentOpen(false);
+    setReportImportText("");
+    setReportImportFileName("");
+    setReportImportDraft(null);
+    setReportImportWarnings([]);
+    setReportImportOpen(false);
+    setReportImportMessage(`已入库：${confirmedCase.title}`);
+  }, []);
+
+  const verifyImportedCase = useCallback(async (preservedCase: SmartCityCase) => {
+    const rawSource = preservedCase.researchReport || preservedCase.sourceExcerpt || "";
+    // Imported DOCX/ZIP reports keep their Base64 images locally for faithful rendering.
+    // AI verification only needs the textual evidence; sending image data URLs can exceed
+    // the hosting request limit before the API route gets a chance to return JSON.
+    const textOnlySource = rawSource
+      .replace(/!\[([^\]]*)\]\(data:image\/[^;\s)]+;base64,[^)]+\)/gi, "$1")
+      .replace(/<img\b[^>]*\bsrc=["']data:image\/[^"']+["'][^>]*>/gi, "")
+      .trim();
+    const verificationSource = textOnlySource.length <= MAX_CASE_SOURCE_CHARACTERS
+      ? textOnlySource
+      : `${textOnlySource.slice(0, MAX_CASE_SOURCE_CHARACTERS - 12_002)}\n\n${textOnlySource.slice(-12_000)}`;
+    const formData = new FormData();
+    formData.set("sourceText", verificationSource);
+    formData.set("researchMode", "true");
+    formData.set("productionMode", "standard");
+    const response = await fetch("/api/ai/parse-case", { method: "POST", body: formData });
+    const responseText = await response.text();
+    let payload: CaseParserResponse | { error?: { message?: string } } | null = null;
+    try {
+      payload = responseText ? JSON.parse(responseText) as CaseParserResponse | { error?: { message?: string } } : null;
+    } catch {
+      if (response.status === 413 || /payload too large|request entity too large/i.test(responseText)) {
+        throw new Error("报告内容过大，联网核验未能提交。系统已保留原文和图片，请压缩图片后重试。");
+      }
+      throw new Error("联网核验服务返回了无法识别的结果，请稍后重试；案例尚未入库。");
+    }
+    if (!response.ok || !payload || !("result" in payload)) {
+      throw new Error((payload && "error" in payload && payload.error?.message) || "联网核验失败，案例未入库。请稍后重试。");
+    }
+    if (!payload.result.compatible) throw new Error(payload.result.incompatibilityReason || "资料无法识别为城市数字化案例。");
+    const verified = payload.result;
+    const canonicalTitle = verified.identity.canonicalTitle.trim() || verified.case.title.trim() || preservedCase.title;
+    return {
+      ...preservedCase,
+      ...verified.case,
+      title: canonicalTitle,
+      slug: preservedCase.slug,
+      status: "待复核" as const,
+      identity: verified.identity,
+      researchSources: verified.researchSources,
+      researchQueries: verified.researchQueries,
+      parsePipeline: payload.meta.pipeline,
+      // 成熟报告正文和原图必须保真；AI只核验元数据，不替换正文结构。
+      researchReport: preservedCase.researchReport,
+      article: preservedCase.article,
+      media: preservedCase.media,
+      sourceTitle: preservedCase.sourceTitle,
+      sourceExcerpt: preservedCase.sourceExcerpt,
+      sourceNote: `由${reportImportFileName || "成熟报告"}导入；正文保留原结构，正式名称与项目位置已联网核验，待人工确认。`,
+      updatedAt: new Date().toISOString(),
+    } satisfies SmartCityCase;
+  }, [reportImportFileName]);
+
+  const importReport = useCallback(async () => {
+    const text = reportImportText.trim();
+    if (text.length < 80) {
+      setReportImportMessage("请粘贴一份完整案例报告，至少包含项目名称和主要正文。");
+      return;
+    }
+
+    setReportImportBusy(true);
+    setReportImportMessage("正在联网核验正式名称和项目位置...");
+    try {
+      const preservedCase = createCaseFromReport(text);
+      setReportImportDraft(await verifyImportedCase(preservedCase));
+      setReportImportMessage("核验完成。请确认名称、地区、分类和正文预览后再入库。");
+    } catch (error) {
+      setReportImportMessage(error instanceof Error ? error.message : "联网核验失败，案例未入库。");
+    } finally { setReportImportBusy(false); }
+  }, [reportImportText, verifyImportedCase]);
+
+  const importReportFile = useCallback(async (file: File | undefined) => {
+    if (!file) return;
+    setReportImportBusy(true);
+    setReportImportFileName(file.name);
+    setReportImportMessage("正在解析文件，请稍等...");
+    try {
+      const parsed = await parseReportFile(file);
+      if (parsed.text.trim().length < 80) {
+        setReportImportMessage("文件已读取，但正文太少，无法形成案例报告。");
+        return;
+      }
+      const preservedCase = createCaseFromImportedReport(parsed.text, {
+        media: parsed.media,
+        importedFrom: parsed.fileName,
+      });
+      setReportImportWarnings(parsed.warnings);
+      setReportImportMessage(`已解析原文结构、表格和 ${parsed.imageCount} 张图片，正在联网核验正式名称与精确位置...`);
+      setReportImportDraft(await verifyImportedCase(preservedCase));
+      setReportImportMessage("核验完成。请确认后入库；正文未经过 AI 改写。");
+    } catch (error) {
+      setReportImportMessage(error instanceof Error ? error.message : "文件解析失败，请换一个 .docx 或 .zip 重试。");
+    } finally {
+      setReportImportBusy(false);
+    }
+  }, [verifyImportedCase]);
+
   useEffect(() => {
     if (!documentOpen) return;
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -640,7 +880,7 @@ export default function MapWorkbench() {
   return (
     <main className="digitalx-brand-theme h-dvh overflow-hidden text-slate-950">
       <header className="workbench-topbar relative z-50 flex h-[68px] items-center gap-3 px-3 sm:px-4">
-        <Link href="/" className="flex shrink-0 items-center gap-2.5">
+        <Link href="/" className="brand-header-lockup flex min-w-0 shrink-0 items-center gap-2.5">
           <span className="brand-logo-shell relative h-11 w-11 shrink-0 overflow-hidden rounded-full">
             <Image
               src="/digital-plus-innovate-logo.jpg"
@@ -652,17 +892,17 @@ export default function MapWorkbench() {
               className="brand-logo-image"
             />
           </span>
-          <span className="hidden md:block">
-            <strong className="brand-title block whitespace-nowrap text-sm">Digital X 城市数智应用案例库</strong>
-            <span className="brand-subtitle block whitespace-nowrap text-[9px]">
-              Digital X Urban Digital Intelligence Application Case Library
+          <span className="brand-title-row hidden min-w-0 items-end md:flex">
+            <strong className="brand-title block whitespace-nowrap">智慧城市及数据要素典型应用案例一张图</strong>
+            <span className="brand-subtitle block whitespace-nowrap">
+              Smart City and Data Element Application Case Portfolio Map
             </span>
           </span>
         </Link>
         <button type="button" onClick={() => setLeftOpen(true)} className="flex h-10 items-center rounded-md border border-slate-200 px-3 text-sm lg:hidden">
           目录
         </button>
-        <label className="relative mx-auto w-full max-w-2xl">
+        <label className="brand-search-wrap relative ml-auto hidden w-full max-w-2xl lg:block">
           <span className="sr-only">全局搜索案例</span>
           <input
             value={keyword}
@@ -678,9 +918,134 @@ export default function MapWorkbench() {
         <Link href="/admin" className="hidden shrink-0 rounded-md border border-slate-200 px-3 py-2 text-xs font-medium hover:bg-slate-50 sm:block">
           管理端
         </Link>
+        <button
+          type="button"
+          onClick={() => {
+            setReportImportOpen(true);
+            setReportImportMessage("");
+          }}
+          className="brand-gradient-button hidden shrink-0 rounded-md px-3 py-2 text-xs font-semibold text-white shadow-sm sm:block"
+        >
+          导入报告
+        </button>
       </header>
 
-      <section className="relative grid h-[calc(100dvh-68px)] lg:grid-cols-[320px_minmax(0,1fr)_296px]">
+      {reportImportOpen && (
+        <div className="fixed inset-0 z-[90] flex items-center justify-center bg-slate-950/35 p-4">
+          <div className="max-h-[92vh] w-full max-w-5xl overflow-y-auto rounded-2xl border border-slate-200 bg-white shadow-2xl">
+            <div className="flex items-start justify-between gap-4 border-b border-slate-200 px-5 py-4">
+              <div>
+                <p className="brand-eyebrow text-[10px] font-bold tracking-[0.16em]">REPORT IMPORT</p>
+                <h2 className="mt-1 text-lg font-semibold">导入已完成案例报告</h2>
+                <p className="mt-1 text-xs leading-5 text-slate-500">
+                  成熟报告默认保留原章节、表格与图片；系统联网核验正式名称和精确位置，确认后才会入库。
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setReportImportOpen(false)}
+                className="rounded-md px-2 py-1 text-lg leading-none text-slate-500 hover:bg-slate-100"
+              >
+                ×
+              </button>
+            </div>
+            <div className="space-y-3 px-5 py-4">
+              <div className="rounded-xl border border-dashed border-cyan-300 bg-cyan-50/70 p-4">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <h3 className="text-sm font-semibold text-slate-900">优先上传报告文件</h3>
+                    <p className="mt-1 text-xs leading-5 text-slate-600">
+                      支持 Word .docx，或包含 .md 与 media/ 图片目录的 .zip。图片会转入案例媒体并嵌入详情页。
+                    </p>
+                    {reportImportFileName && (
+                      <p className="mt-1 text-[11px] text-cyan-700">当前文件：{reportImportFileName}</p>
+                    )}
+                  </div>
+                  <label className="brand-gradient-button cursor-pointer rounded-md px-4 py-2 text-xs font-semibold text-white shadow-sm">
+                    选择文件
+                    <input
+                      type="file"
+                      accept=".docx,.zip,.md,.markdown"
+                      className="sr-only"
+                      disabled={reportImportBusy}
+                      onChange={(event) => {
+                        void importReportFile(event.target.files?.[0]);
+                        event.currentTarget.value = "";
+                      }}
+                    />
+                  </label>
+                </div>
+              </div>
+              {!reportImportDraft && <textarea
+                value={reportImportText}
+                onChange={(event) => {
+                  setReportImportText(event.target.value);
+                  setReportImportMessage("");
+                }}
+                placeholder={"# 大湾区文化体育中心智慧运营管理平台\n\n## 项目概况\n粘贴你已经在其他 AI 或 Word 中整理好的完整报告正文..."}
+                className="h-[34vh] min-h-56 w-full resize-none rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm leading-6 outline-none transition focus:border-cyan-400 focus:bg-white"
+              />}
+              {reportImportDraft && (
+                <div className="space-y-4">
+                  <div className="grid gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4 md:grid-cols-2">
+                    <label className="text-xs font-medium text-slate-600 md:col-span-2">项目公开正式名称
+                      <input className="admin-input bg-white" value={reportImportDraft.title} onChange={(e) => setReportImportDraft((item) => item ? ({ ...item, title: e.target.value }) : item)} />
+                    </label>
+                    <label className="text-xs font-medium text-slate-600">省 / 市 / 区
+                      <div className="mt-1 grid grid-cols-3 gap-2">
+                        {(["province", "city", "district"] as const).map((key) => <input key={key} className="admin-input mt-0 bg-white" value={reportImportDraft[key] || ""} onChange={(e) => setReportImportDraft((item) => item ? ({ ...item, [key]: e.target.value }) : item)} />)}
+                      </div>
+                    </label>
+                    <label className="text-xs font-medium text-slate-600">案例分类
+                      <select className="admin-input bg-white" value={reportImportDraft.category} onChange={(e) => setReportImportDraft((item) => item ? ({ ...item, category: e.target.value as CaseCategory }) : item)}>
+                        {categories.map((item) => <option key={item}>{item}</option>)}
+                      </select>
+                    </label>
+                    <div className="text-xs leading-5 text-slate-600 md:col-span-2">
+                      <strong>地图点位：</strong>{reportImportDraft.locationReason || "待确认"}（{reportImportDraft.lng}, {reportImportDraft.lat}）
+                    </div>
+                    {reportImportDraft.identity?.evidence?.length ? <div className="md:col-span-2 text-xs leading-5 text-slate-600"><strong>名称核验依据：</strong>{reportImportDraft.identity.evidence.slice(0, 2).map((item) => item.title).filter(Boolean).join("；") || reportImportDraft.identity.reason}</div> : null}
+                  </div>
+                  <div className="rounded-xl border border-slate-200 bg-white p-3">
+                    <div className="mb-3 flex items-center justify-between"><strong className="text-sm">原文保真预览</strong><span className="text-xs text-emerald-700">正文未经过 AI 改写</span></div>
+                    <div className="max-h-[42vh] overflow-y-auto rounded-lg border border-slate-100"><CaseDocument item={reportImportDraft} onClose={() => undefined} /></div>
+                  </div>
+                  {reportImportWarnings.length > 0 && <p className="text-xs text-amber-700">解析提醒：{reportImportWarnings.join("；")}</p>}
+                </div>
+              )}
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <p className="text-xs leading-5 text-slate-500">
+                  {reportImportDraft ? "请重点确认正式名称、行政区和地图点位；无需进入复杂管理端。" : "上传后先解析和联网核验，不会直接写入案例库。"}
+                </p>
+                <div className="flex shrink-0 items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setReportImportOpen(false)}
+                    className="rounded-md border border-slate-200 px-4 py-2 text-xs font-medium text-slate-600 hover:bg-slate-50"
+                  >
+                    取消
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => reportImportDraft ? void publishImportedCase(reportImportDraft) : void importReport()}
+                    disabled={reportImportBusy}
+                    className="brand-gradient-button rounded-md px-4 py-2 text-xs font-semibold text-white shadow-sm"
+                  >
+                    {reportImportBusy ? "解析与联网核验中..." : reportImportDraft ? "确认并入库" : "开始解析"}
+                  </button>
+                </div>
+              </div>
+              {reportImportMessage && (
+                <p className="rounded-lg border border-cyan-200 bg-cyan-50 px-3 py-2 text-xs text-cyan-800">
+                  {reportImportMessage}
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      <section className="relative grid h-[calc(100dvh-68px)] min-h-0 max-h-[calc(100dvh-68px)] overflow-hidden lg:grid-cols-[320px_minmax(0,1fr)_296px]">
         {(leftOpen || rightOpen) && (
           <button
             type="button"
@@ -738,36 +1103,57 @@ export default function MapWorkbench() {
           <AMapCaseMap
             cities={cities}
             casePoints={casePoints}
-            displayMode={mapLevel === "national" ? "city" : "case"}
+            displayMode="case"
+            administrativeFocus={administrativeFocus}
             activeCity={activeCity}
             activeCaseId={activeSelectedCase?.id}
+            caseFocusRequest={caseFocusRequest}
             onSelectCity={selectCity}
             onSelectCase={selectCasePoint}
             onClearFilters={clearFilters}
             className="h-full min-h-[420px]"
           />
 
-          <div className="absolute left-3 top-12 z-10 flex flex-wrap items-center gap-1 rounded-lg border border-slate-200 bg-white/95 p-1 shadow-sm lg:left-4">
-            {(Object.keys(mapLevelLabels) as MapLevel[]).map((level, index) => {
-              const disabled =
-                (level === "province" && activeProvince === "全部" && !effectiveSelectedCase) ||
-                ((level === "city" || level === "project") && !effectiveSelectedCase);
-              return (
-                <div key={level} className="flex items-center">
-                  {index > 0 && <span className="px-0.5 text-[10px] text-slate-300">/</span>}
-                  <button
-                    type="button"
-                    disabled={disabled}
-                    onClick={() => setLevel(level)}
-                    className={`rounded px-2 py-1 text-[11px] font-medium ${
-                      mapLevel === level ? "brand-gradient-button text-white" : "text-slate-600 hover:bg-sky-50 disabled:text-slate-300"
-                    }`}
-                  >
-                    {mapLevelLabels[level]}
-                  </button>
-                </div>
-              );
-            })}
+          <div className="absolute left-3 top-12 z-10 flex flex-wrap items-center gap-1.5 rounded-lg border border-slate-200 bg-white/95 p-1.5 shadow-sm lg:left-4">
+            <button
+              type="button"
+              onClick={() => setLevel("national")}
+              className={`rounded px-2.5 py-1.5 text-[11px] font-medium ${
+                mapLevel === "national" ? "brand-gradient-button text-white" : "text-slate-600 hover:bg-sky-50"
+              }`}
+            >
+              全国
+            </button>
+            <select
+              value={activeProvince}
+              onChange={(event) => {
+                const value = event.target.value;
+                setActiveProvince(value);
+                setActiveCity("全部");
+                setSelectedCaseSlug("");
+                setDocumentOpen(false);
+                setMapLevel(value === "全部" ? "national" : "province");
+              }}
+              className="h-7 rounded-md border border-slate-200 bg-white px-2 text-[11px] font-medium text-slate-700 outline-none focus:border-cyan-400"
+            >
+              <option value="全部">选择省份</option>
+              {provinces.map((item) => <option key={item}>{item}</option>)}
+            </select>
+            <select
+              value={activeCity}
+              onChange={(event) => {
+                const value = event.target.value;
+                setActiveCity(value);
+                setSelectedCaseSlug("");
+                setDocumentOpen(false);
+                setMapLevel(value === "全部" ? (activeProvince === "全部" ? "national" : "province") : "city");
+              }}
+              disabled={activeProvince === "全部"}
+              className="h-7 rounded-md border border-slate-200 bg-white px-2 text-[11px] font-medium text-slate-700 outline-none focus:border-cyan-400 disabled:bg-slate-50 disabled:text-slate-300"
+            >
+              <option value="全部">选择城市</option>
+              {cityOptions.map((item) => <option key={item}>{item}</option>)}
+            </select>
           </div>
 
           <div className="pointer-events-none absolute right-3 top-3 z-10 rounded-md border border-slate-200 bg-white/95 px-2.5 py-1.5 text-[11px] text-slate-600 shadow-sm">
@@ -821,6 +1207,7 @@ export default function MapWorkbench() {
                       setActiveProvince(value);
                       setActiveCity("全部");
                       setSelectedCaseSlug("");
+                      setDocumentOpen(false);
                       setMapLevel(value === "全部" ? "national" : "province");
                     }}
                     className="h-10 w-full rounded-md border border-slate-200 bg-white px-2.5 text-xs outline-none focus:border-teal-500"
@@ -890,8 +1277,9 @@ export default function MapWorkbench() {
                   />
                 </div>
                 <p className="mt-2 text-[10px] leading-4 text-slate-600">
-                  全部案例已进入原生七章协议；其中 {migrationSummary.benchmarkDrafts} 个标杆样稿进入终审，
-                  {migrationSummary.batchMigrated} 个存量案例仍待扩写、补证据和人工批准。
+                  {migrationSummary.total === 0
+                    ? "模拟案例已清空，等待通过“导入报告”录入真实成熟案例。"
+                    : `全部案例已进入原生七章协议；其中 ${migrationSummary.benchmarkDrafts} 个标杆样稿进入终审，${migrationSummary.batchMigrated} 个存量案例仍待扩写、补证据和人工批准。`}
                 </p>
               </div>
             </section>
@@ -899,7 +1287,7 @@ export default function MapWorkbench() {
               <h3 className="text-xs font-semibold text-slate-800">地图图层</h3>
               <div className="mt-2 space-y-2 text-xs text-slate-600">
                 <div className="rounded-md border border-slate-200 px-3 py-2.5">
-                  <strong className="block text-slate-800">{mapLevel === "national" ? "城市聚合图层" : "精确案例点位"}</strong>
+                  <strong className="block text-slate-800">精确案例点位</strong>
                   <span className="mt-1 block text-[10px] leading-4 text-slate-500">
                     省级案例使用省会锚点，市级和项目级案例使用已核验坐标；低置信度点位仍需人工复核。
                   </span>
