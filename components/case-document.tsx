@@ -16,6 +16,20 @@ const mediaLabels: Record<CaseMediaAsset["kind"], string> = {
   other: "案例图片",
 };
 
+function MarkdownTable({ value }: { value: string }) {
+  const rows = value.split("\n").map((line) => line.trim()).filter((line) => /^\|.*\|$/.test(line));
+  if (rows.length < 2 || !/^\|(?:\s*:?-{3,}:?\s*\|)+$/.test(rows[1])) return <p>{value}</p>;
+  const cells = (row: string) => row.slice(1, -1).split("|").map((cell) => cell.trim());
+  return (
+    <div className="case-document-table-wrap">
+      <table className="case-document-table">
+        <thead><tr>{cells(rows[0]).map((header, index) => <th key={`${index}-${header}`}>{header}</th>)}</tr></thead>
+        <tbody>{rows.slice(2).map((row, rowIndex) => <tr key={rowIndex}>{cells(row).map((cell, cellIndex) => <td key={cellIndex}>{cell}</td>)}</tr>)}</tbody>
+      </table>
+    </div>
+  );
+}
+
 export function CaseDocument({
   item,
   onClose,
@@ -25,19 +39,20 @@ export function CaseDocument({
 }) {
   const document = useMemo(() => buildCaseDocument(item), [item]);
   const heroMedia = document.sections.flatMap((section) => section.media)[0];
-  const readingMinutes = Math.max(3, Math.ceil(document.totalCharacters / 460));
+  const location = [item.province, item.city, item.district].filter(Boolean).join(" · ");
+  const visibleTags = item.aiTags.filter((tag) => tag !== item.category).slice(0, 5);
 
   return (
     <article
       className="case-document"
       aria-label={`${document.title}案例文档`}
       data-content-protocol={
-        document.usesNativeContentModel ? "native-seven-part" : "legacy-compatible"
+        document.preservesSourceStructure ? "source-preserved" : "editorial"
       }
     >
       <header className="case-document-toolbar">
         <div className="min-w-0">
-          <span>CASE DOCUMENT</span>
+          <span>案例阅读</span>
           <strong>{document.title}</strong>
         </div>
         <div className="case-document-toolbar-actions">
@@ -54,41 +69,26 @@ export function CaseDocument({
         <section className="case-document-cover">
           <div className="case-document-kicker">
             <span>{item.category}</span>
-            <span>
-              {item.province} · {item.city}
-            </span>
-            <span>{item.year}</span>
-            {item.contentMigration?.benchmark && <em>V1.5 标杆样稿</em>}
+            <span>{location}</span>
+            <span>{item.sourceTitle ? "报告导入" : item.year}</span>
           </div>
           <h1>{document.title}</h1>
           <p className="case-document-standfirst">{document.standfirst}</p>
-          <dl className="case-document-facts">
-            <div>
-              <dt>建设主体</dt>
-              <dd>{item.owner || "待核验"}</dd>
+          {visibleTags.length > 0 && (
+            <div className="case-document-tags" aria-label="核心标签">
+              {visibleTags.map((tag) => <span key={tag}>{tag}</span>)}
             </div>
-            <div>
-              <dt>项目阶段</dt>
-              <dd>{item.projectStage || "待核验"}</dd>
-            </div>
-            <div>
-              <dt>阅读信息</dt>
-              <dd>
-                约 {readingMinutes} 分钟 · 证据{item.evidenceLevel}
-              </dd>
-            </div>
-          </dl>
+          )}
           {document.keyFindings.length > 0 && (
             <div className="case-document-findings">
-              <h2>案例要点</h2>
-              <ol>
+              <h2>案例速览</h2>
+              <ul>
                 {document.keyFindings.map((finding, index) => (
                   <li key={`${index}-${finding}`}>
-                    <span>{String(index + 1).padStart(2, "0")}</span>
                     <p>{finding}</p>
                   </li>
                 ))}
-              </ol>
+              </ul>
             </div>
           )}
           {heroMedia && (
@@ -113,21 +113,21 @@ export function CaseDocument({
           <section
             id={`document-${section.id}`}
             className="case-document-section"
-            key={section.id}
+            key={`${section.id}-${index}`}
           >
             <div className="case-document-section-heading">
-              <span>第 {String(index + 1).padStart(2, "0")} 部分</span>
+              {!document.preservesSourceStructure && <span>第 {String(index + 1).padStart(2, "0")} 部分</span>}
               <h2>{section.title}</h2>
             </div>
             {section.summary && (
               <p className="case-document-section-lead">{section.summary}</p>
             )}
             <div className="case-document-prose">
-              {section.paragraphs.map((paragraph, paragraphIndex) => (
-                <p key={`${section.id}-paragraph-${paragraphIndex}`}>
-                  {paragraph}
-                </p>
-              ))}
+              {section.paragraphs.map((paragraph, paragraphIndex) =>
+                /^\s*\|.+\|\s*$/m.test(paragraph)
+                  ? <MarkdownTable key={`${section.id}-table-${paragraphIndex}`} value={paragraph} />
+                  : <p key={`${section.id}-paragraph-${paragraphIndex}`}>{paragraph}</p>
+              )}
             </div>
             {section.points.length > 0 && (
               <ul className="case-document-points">
@@ -167,7 +167,7 @@ export function CaseDocument({
             )}
             {section.media
               .filter((media) => media.id !== heroMedia?.id)
-              .map((media) => (
+              .map((media, mediaIndex) => (
                 <figure className="case-document-figure" key={media.id}>
                   <Image
                     src={media.url}
@@ -178,8 +178,8 @@ export function CaseDocument({
                     unoptimized
                   />
                   <figcaption>
-                    <strong>{mediaLabels[media.kind]}</strong>
-                    {media.caption}
+                    <strong>图 {mediaIndex + 1}</strong>
+                    {media.caption || mediaLabels[media.kind]}
                   </figcaption>
                 </figure>
               ))}
@@ -199,9 +199,7 @@ export function CaseDocument({
             <span>资料与边界</span>
             <h2>来源说明</h2>
           </div>
-          <p>
-            本文由 Digital X 内容模型整理，事实性表述仍以原始材料及人工复核结果为准。
-          </p>
+          <p>案例内容以原始材料为基础整理，项目信息以来源文件为准。</p>
           {document.sources.length > 0 && (
             <ol>
               {document.sources.map((source, index) => (
