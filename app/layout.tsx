@@ -14,7 +14,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "DigitalX 城市数智应用案例库",
-  description: "AI 辅助整理、人工复核、地图化检索的智慧城市应用案例知识库。",
+  description: "真实案例资产库、地图化检索与 Digital X AI 研究助手。",
   other: {
     "codex-preview": "development",
   },

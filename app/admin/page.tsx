@@ -252,7 +252,7 @@ function StatusBadge({ status }: { status: PublishStatus }) {
   return <span className={`inline-flex rounded border px-2 py-0.5 text-xs font-medium ${styles[status]}`}>{status}</span>;
 }
 
-export default function AdminPage() {
+export default function AdminPage({ labMode = false }: { labMode?: boolean }) {
   const [importMode, setImportMode] = useState<ImportMode>("网页链接");
   const [sourceUrl, setSourceUrl] = useState("");
   const [sourceText, setSourceText] = useState("");
@@ -274,9 +274,23 @@ export default function AdminPage() {
   const [addingMedia, setAddingMedia] = useState(false);
 
   useEffect(() => {
-    const frame = window.requestAnimationFrame(async () => setLocalCases(await getLocalCases()));
+    if (!labMode) {
+      window.location.replace("/lab/ai-case-studio");
+      return;
+    }
+    const project = new URLSearchParams(window.location.search).get("project")?.trim();
+    const frame = window.requestAnimationFrame(async () => {
+      if (project) {
+        setImportMode("项目名称");
+        setSourceText(project);
+        setResearchMode(true);
+        setProductionMode("benchmark");
+        setNotice("已载入项目名称。AI 研究结果将作为候选草稿，不能自动发布。");
+      }
+      setLocalCases(await getLocalCases());
+    });
     return () => window.cancelAnimationFrame(frame);
-  }, []);
+  }, [labMode]);
 
   const combinedCases = useMemo(() => {
     const localIds = new Set(localCases.map((item) => item.id));

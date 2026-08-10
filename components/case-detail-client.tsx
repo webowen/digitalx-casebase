@@ -782,7 +782,7 @@ export function CaseDetailClient({
           <button className={detailMode === "research" ? "active" : ""} onClick={() => setDetailMode("research")}>研读</button>
         </div>
         <div className="reader-topbar-actions">
-          <Link href="/admin" className="reader-text-button admin-link">管理端</Link>
+          <Link href="/assets" className="reader-text-button admin-link">案例资产</Link>
         </div>
       </header>
 
@@ -935,7 +935,7 @@ export function CaseDetailClient({
             <button onClick={() => setSettingsOpen((value) => !value)}><span>Aa</span>排版</button>
             <button onClick={() => switchFlow(flow === "scroll" ? "paged" : "scroll")}><span>{flow === "scroll" ? "↔" : "↕"}</span>{flow === "scroll" ? "翻页" : "滚动"}</button>
             <button onClick={() => { setDetailMode("research"); setMobileChromeVisible(true); }}><span>⌕</span>研读</button>
-            <Link href="/admin"><span>＋</span>上传</Link>
+            <Link href="/assets"><span>＋</span>案例资产</Link>
           </nav>
 
           {flow === "paged" && (
