@@ -7,6 +7,22 @@ import part05 from "@/knowledge-base/index/digitalx_case_index_v1.part-05.json";
 import part06 from "@/knowledge-base/index/digitalx_case_index_v1.part-06.json";
 import part07 from "@/knowledge-base/index/digitalx_case_index_v1.part-07.json";
 import part08 from "@/knowledge-base/index/digitalx_case_index_v1.part-08.json";
+import part09 from "@/knowledge-base/index/digitalx_case_index_v1.part-09.json";
+import part10 from "@/knowledge-base/index/digitalx_case_index_v1.part-10.json";
+import part11 from "@/knowledge-base/index/digitalx_case_index_v1.part-11.json";
+import part12 from "@/knowledge-base/index/digitalx_case_index_v1.part-12.json";
+import part13 from "@/knowledge-base/index/digitalx_case_index_v1.part-13.json";
+import part14 from "@/knowledge-base/index/digitalx_case_index_v1.part-14.json";
+import part15 from "@/knowledge-base/index/digitalx_case_index_v1.part-15.json";
+import part16 from "@/knowledge-base/index/digitalx_case_index_v1.part-16.json";
+import part17 from "@/knowledge-base/index/digitalx_case_index_v1.part-17.json";
+import part18 from "@/knowledge-base/index/digitalx_case_index_v1.part-18.json";
+import part19 from "@/knowledge-base/index/digitalx_case_index_v1.part-19.json";
+import part20 from "@/knowledge-base/index/digitalx_case_index_v1.part-20.json";
+import part21 from "@/knowledge-base/index/digitalx_case_index_v1.part-21.json";
+import part22 from "@/knowledge-base/index/digitalx_case_index_v1.part-22.json";
+import part23 from "@/knowledge-base/index/digitalx_case_index_v1.part-23.json";
+import part24 from "@/knowledge-base/index/digitalx_case_index_v1.part-24.json";
 import {
   normalizeCaseCategory,
   type CaseCategory,
@@ -137,7 +153,7 @@ type CompactIndex = { schema: Array<keyof IndexedCaseRow>; rows?: unknown[][] };
 
 function readRows(input: IndexedCaseRow[] | CompactIndex) {
   if (Array.isArray(input)) return input;
-  const rows = input.rows ?? [part01, part02, part03, part04, part05, part06, part07, part08].flat();
+  const rows = input.rows ?? [part01, part02, part03, part04, part05, part06, part07, part08, part09, part10, part11, part12, part13, part14, part15, part16, part17, part18, part19, part20, part21, part22, part23, part24].flat();
   return rows.map((values) => Object.fromEntries(input.schema.map((key, index) => [key, values[index]])) as IndexedCaseRow);
 }
 
