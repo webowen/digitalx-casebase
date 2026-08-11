@@ -508,30 +508,23 @@ export function AMapCaseMap({
       let cluster: ClusterLike | null = null;
       let zoomHandler: (() => void) | undefined;
       if (displayMode === "case") {
-        const caseData = points.filter((point): point is CasePointData => point.kind === "case");
-        const renderCaseMarkers = () => {
-          const detail = getCaseMarkerDetail(map.getZoom());
-          caseMarkersRef.current.forEach((marker) => marker.setMap(null));
-          caseMarkersRef.current = caseData.map((point) => {
-            const active = point.id === activeCaseId;
-            const marker = new AMap.Marker({
-              position: point.lnglat,
-              content: createCaseMarkerElement(
-                point,
-                (id) => onSelectCaseRef.current(id),
-                active,
-                detail,
-              ),
-              offset: new AMap.Pixel(-14, -34),
-              zIndex: active ? 320 : detail === "full" ? 220 : 180,
-            });
-            marker.setMap(map);
-            return marker;
+        if (clusterPoints.length > 0) {
+          cluster = new AMap.MarkerCluster(map, clusterPoints, {
+            gridSize: 64,
+            maxZoom: 12,
+            averageCenter: true,
+            zoomOnClick: true,
+            renderMarker: (context: PointRenderContext) => createPointMarker(AMap, context, clusterPoints, (city) => onSelectCityRef.current(city), (id) => onSelectCaseRef.current(id)),
+            renderClusterMarker: (context: ClusterRenderContext) => createClusterMarker(AMap, context, "case"),
           });
-        };
-        renderCaseMarkers();
-        zoomHandler = renderCaseMarkers;
-        map.on("zoomend", zoomHandler);
+          clusterRef.current = cluster;
+        }
+        if (selectedPoint) {
+          const detail = getCaseMarkerDetail(map.getZoom());
+          const marker = new AMap.Marker({ position: selectedPoint.lnglat, content: createCaseMarkerElement(selectedPoint, (id) => onSelectCaseRef.current(id), true, detail), offset: new AMap.Pixel(-14, -34), zIndex: 320 });
+          marker.setMap(map);
+          activeMarkerRef.current = marker;
+        }
       } else if (clusterPoints.length > 0) {
         cluster = new AMap.MarkerCluster(map, clusterPoints, {
           gridSize: 68,
