@@ -44,4 +44,3 @@ async function CaseAssetsContent({ searchParams }: { searchParams: Promise<{ pro
     </main>
   );
 }
-

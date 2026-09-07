@@ -84,37 +84,78 @@ html {
 
 .amap-city-marker,
 .amap-cluster-marker {
-  display: flex;
-  flex-direction: column;
+  display: inline-flex;
+  min-height: 26px;
   align-items: center;
   justify-content: center;
-  border-radius: 999px;
-  border: 2px solid #ffffff;
-  background: rgba(13, 148, 136, 0.94);
-  color: #ffffff;
+  gap: 5px;
+  border-radius: 8px;
+  border: 1px solid rgba(8, 127, 232, 0.22);
+  background: rgba(255, 255, 255, 0.9);
+  padding: 4px 7px;
+  color: #15345f;
   font-family: Arial, "PingFang SC", "Microsoft YaHei", sans-serif;
-  box-shadow: 0 7px 18px rgba(15, 23, 42, 0.24);
+  box-shadow: 0 3px 10px rgba(6, 45, 104, 0.1);
+  backdrop-filter: blur(8px);
   cursor: pointer;
   transition: transform 160ms ease, box-shadow 160ms ease, background 160ms ease;
 }
 
+.amap-district-marker {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  border: 1px solid rgba(71, 85, 105, 0.22);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.92);
+  padding: 5px 8px;
+  color: #334155;
+  font-family: Arial, "PingFang SC", "Microsoft YaHei", sans-serif;
+  box-shadow: 0 3px 10px rgba(15, 23, 42, 0.09);
+  backdrop-filter: blur(8px);
+}
+
+.amap-district-marker strong {
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.amap-district-marker span {
+  border-left: 1px solid #e2e8f0;
+  padding-left: 6px;
+  color: #64748b;
+  font-size: 10px;
+}
+
 .amap-city-marker:hover {
   z-index: 5;
-  transform: scale(1.08);
-  box-shadow: 0 9px 22px rgba(15, 23, 42, 0.3);
+  transform: translateY(-1px);
+  border-color: rgba(8, 127, 232, 0.5);
+  box-shadow: 0 5px 14px rgba(6, 45, 104, 0.16);
 }
 
 .amap-city-marker.is-active {
-  border-color: #0f172a;
-  background: #0f766e;
-  box-shadow: 0 0 0 5px rgba(94, 234, 212, 0.4), 0 9px 22px rgba(15, 23, 42, 0.3);
+  border-color: rgba(8, 127, 232, 0.55);
+  background: #ffffff;
+  box-shadow: 0 0 0 3px rgba(8, 184, 217, 0.13), 0 6px 16px rgba(6, 45, 104, 0.16);
+}
+
+.amap-city-marker i,
+.amap-cluster-marker i {
+  width: 6px;
+  height: 6px;
+  flex: none;
+  border-radius: 50% 50% 50% 0;
+  background: linear-gradient(135deg, #087fe8, #08b8d9);
+  transform: rotate(-45deg);
 }
 
 .amap-city-marker strong,
 .amap-cluster-marker strong {
   max-width: calc(100% - 6px);
   overflow: hidden;
-  color: #ffffff;
+  color: #15345f;
   font-size: 11px;
   font-weight: 700;
   line-height: 14px;
@@ -124,14 +165,21 @@ html {
 
 .amap-city-marker span,
 .amap-cluster-marker span {
-  color: #ccfbf1;
+  min-width: 17px;
+  border-radius: 999px;
+  background: #edf7ff;
+  color: #2671b8;
   font-size: 10px;
-  line-height: 13px;
+  line-height: 16px;
+  text-align: center;
 }
 
 .amap-cluster-marker {
-  border-color: rgba(255, 255, 255, 0.9);
-  background: #0f172a;
+  min-width: 32px;
+  min-height: 24px;
+  border-radius: 999px;
+  padding: 3px 7px;
+  background: rgba(255, 255, 255, 0.84);
 }
 
 .amap-case-marker {
@@ -154,13 +202,13 @@ html {
 }
 
 .amap-case-marker.is-dot {
-  width: 12px;
-  height: 12px;
-  min-width: 12px;
+  width: 8px;
+  height: 8px;
+  min-width: 8px;
   padding: 0;
-  border: 2px solid #fff;
-  background: var(--brand-cyan, #08b8d9);
-  box-shadow: 0 0 0 3px rgba(8, 184, 217, 0.18), 0 4px 10px rgba(6, 45, 104, 0.18);
+  border: 1.5px solid #fff;
+  background: #49aeea;
+  box-shadow: 0 0 0 2px rgba(8, 184, 217, 0.1), 0 2px 6px rgba(6, 45, 104, 0.12);
 }
 
 .amap-case-marker.is-dot::after,
@@ -170,13 +218,21 @@ html {
 }
 
 .amap-case-marker.is-compact {
-  max-width: 118px;
-  padding-right: 8px;
+  width: 16px;
+  height: 20px;
+  min-width: 16px;
+  padding: 0;
+  border: 1.5px solid #fff;
+  border-radius: 50% 50% 50% 0;
+  background: linear-gradient(135deg, #168bdc, #57bde7);
+  box-shadow: 0 3px 8px rgba(6, 45, 104, 0.18);
+  transform: rotate(-45deg);
 }
 
-.amap-case-marker.is-compact > strong {
-  max-width: 88px;
-  font-size: 11px;
+.amap-case-marker.is-compact::after,
+.amap-case-marker.is-compact > strong,
+.amap-case-marker.is-compact > span {
+  display: none;
 }
 
 .amap-case-marker:hover {
@@ -230,11 +286,12 @@ html {
 }
 
 .amap-cluster-marker strong {
-  font-size: 15px;
+  color: #1f5f99;
+  font-size: 11px;
 }
 
 .amap-cluster-marker span {
-  color: #cbd5e1;
+  display: none;
 }
 
 .amap-logo,
@@ -356,6 +413,14 @@ html {
   box-shadow: -8px 0 26px rgba(14, 75, 158, 0.06);
 }
 
+/* The desktop grid always reserves the assistant column. Keep the panel in that
+   column; translate-x-full is only the mobile drawer's closed state. */
+@media (min-width: 1024px) {
+  .workbench-panel-right {
+    transform: translateX(0) !important;
+  }
+}
+
 .workbench-map {
   background:
     radial-gradient(circle at 45% 28%, rgba(255, 255, 255, 0.84), transparent 38%),
@@ -406,22 +471,22 @@ html {
 }
 
 .digitalx-brand-theme .amap-city-marker {
-  background: linear-gradient(135deg, var(--brand-blue), var(--brand-cyan));
-  box-shadow: 0 7px 18px rgba(23, 69, 220, 0.28);
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow: 0 3px 10px rgba(23, 69, 220, 0.1);
 }
 
 .digitalx-brand-theme .amap-city-marker.is-active {
-  border-color: #ffffff;
-  background: linear-gradient(135deg, var(--brand-deep), var(--brand-aqua));
-  box-shadow: 0 0 0 5px rgba(22, 215, 199, 0.3), 0 9px 24px rgba(23, 69, 220, 0.32);
+  border-color: rgba(8, 127, 232, 0.55);
+  background: #ffffff;
+  box-shadow: 0 0 0 3px rgba(8, 184, 217, 0.13), 0 6px 16px rgba(23, 69, 220, 0.16);
 }
 
 .digitalx-brand-theme .amap-city-marker span {
-  color: #ddfffb;
+  color: #2671b8;
 }
 
 .digitalx-brand-theme .amap-cluster-marker {
-  background: linear-gradient(135deg, var(--brand-ink), var(--brand-deep));
+  background: rgba(255, 255, 255, 0.84);
 }
 
 .digitalx-brand-theme .amap-case-marker {
@@ -446,36 +511,6 @@ html {
 .digitalx-brand-theme .amap-case-marker.is-active {
   box-shadow: 0 0 0 4px rgba(22, 215, 199, 0.3), 0 8px 24px rgba(23, 69, 220, 0.32);
 }
-
-.amap-case-point {
-  position: relative;
-  width: 1px;
-  height: 1px;
-}
-
-.amap-case-point .amap-case-marker {
-  position: absolute;
-  left: -12px;
-  bottom: 18px;
-}
-
-.amap-case-point.is-dot .amap-case-marker {
-  left: 8px;
-  bottom: -7px;
-}
-
-.amap-case-point.is-active .amap-case-marker {
-  border-color: var(--brand-deep);
-  background: var(--brand-gradient);
-  color: #fff;
-  box-shadow: 0 0 0 4px rgba(22, 215, 199, 0.3), 0 8px 24px rgba(23, 69, 220, 0.32);
-}
-
-.amap-case-point.is-active .amap-case-marker::after {
-  border-color: var(--brand-deep);
-  background: var(--brand-deep);
-}
-
 
 /* V1.5.0-alpha.2.2 in-place case document */
 

@@ -2,26 +2,33 @@ import type { CaseCategory, SmartCityCase } from "./case-model";
 
 export function cityStats(cases: SmartCityCase[], category?: CaseCategory | "全部") {
   const filtered = category && category !== "全部" ? cases.filter((item) => item.category === category) : cases;
-  const byCity = new Map<string, { city: string; province: string; count: number; lng: number; lat: number }>();
+  const byCity = new Map<string, { city: string; province: string; count: number; sumLng: number; sumLat: number }>();
 
   for (const item of filtered) {
-    const current = byCity.get(item.city);
+    const key = `${item.province}:${item.city}`;
+    const current = byCity.get(key);
     if (current) {
       current.count += 1;
-      current.lng = (current.lng + item.lng) / 2;
-      current.lat = (current.lat + item.lat) / 2;
+      current.sumLng += item.lng;
+      current.sumLat += item.lat;
     } else {
-      byCity.set(item.city, {
+      byCity.set(key, {
         city: item.city,
         province: item.province,
         count: 1,
-        lng: item.lng,
-        lat: item.lat,
+        sumLng: item.lng,
+        sumLat: item.lat,
       });
     }
   }
 
-  return Array.from(byCity.values()).sort((a, b) => b.count - a.count);
+  return Array.from(byCity.values())
+    .map(({ sumLng, sumLat, ...item }) => ({
+      ...item,
+      lng: sumLng / item.count,
+      lat: sumLat / item.count,
+    }))
+    .sort((a, b) => b.count - a.count);
 }
 
 export function projectHealth(cases: SmartCityCase[]) {

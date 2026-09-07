@@ -8,7 +8,7 @@ export const productionStageLabels: Record<CaseProductionStage, string> = {
   queued: "待进入生产",
   researching: "联网研究",
   evidence_ready: "证据包整理",
-  draft_ready: "七章正文成稿",
+  draft_ready: "案例正文成稿",
   quality_review: "质量规则检查",
   final_review: "人工终审",
   approved: "终审通过",

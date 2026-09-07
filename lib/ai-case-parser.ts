@@ -98,6 +98,7 @@ export type CaseParserResponse = {
     inputTokens: number;
     outputTokens: number;
     researchMode: boolean;
+    benchmarkMode?: boolean;
     searchQueryCount: number;
     estimatedCostCny: number;
     fallbackUsed: boolean;

@@ -3,26 +3,26 @@ import type {
   CaseParserOutput,
   ParsedCaseFields,
 } from "./ai-case-parser";
-import type {
-  CaseArticle,
-  CaseArticleSection,
-  CaseArticleSectionId,
-  CaseClaimType,
-  CaseContentClaim,
-  CaseContentLevel,
-  CaseContentSection,
-  CaseContentSectionId,
-  CaseDataAsset,
-  CaseEvidenceStatus,
-  CaseMetric,
-  CaseMilestone,
-  CaseOrganization,
-  CaseOrganizationRole,
-  CaseMediaPlanItem,
-  CaseProjectIdentity,
-  CaseScenario,
+import {
+  normalizeCaseCategory,
+  type CaseArticle,
+  type CaseArticleSection,
+  type CaseArticleSectionId,
+  type CaseClaimType,
+  type CaseContentClaim,
+  type CaseContentLevel,
+  type CaseContentSection,
+  type CaseContentSectionId,
+  type CaseDataAsset,
+  type CaseEvidenceStatus,
+  type CaseMetric,
+  type CaseMilestone,
+  type CaseOrganization,
+  type CaseOrganizationRole,
+  type CaseMediaPlanItem,
+  type CaseProjectIdentity,
+  type CaseScenario,
 } from "./case-model";
-import { normalizeCaseCategory } from "./case-model";
 
 export const NATIVE_CASE_PROTOCOL_VERSION = "1.0" as const;
 
@@ -143,7 +143,7 @@ export function normalizeProjectTitle(value: unknown) {
     .replace(/\s+/g, " ")
     .trim();
 
-  const structuredSeparator = title.match(/^(.{4,}?)[—–-]\s*(.+)$/);
+  const structuredSeparator = title.match(/^(.{4,}?)[—–-]+\s*(.+)$/);
   if (structuredSeparator && narrativeTitleTail.test(structuredSeparator[2].trim())) {
     title = structuredSeparator[1].trim();
   }
@@ -190,7 +190,7 @@ export function normalizeNativeEvidencePackage(
   const sourceIds = new Set(allowedSourceIds);
   const rawResolution = objectValue(root.identityResolution) || {};
   const identityResolution = {
-    canonicalTitle: normalizeProjectTitle(rawResolution.canonicalTitle),
+    canonicalTitle: stringValue(rawResolution.canonicalTitle),
     candidates: stringArray(rawResolution.candidates),
     aliases: stringArray(rawResolution.aliases),
     confidence: Math.min(
@@ -591,7 +591,19 @@ export function nativeEvidencePrompt(input: {
   baseDraft: unknown;
   researchContext: string;
   availableSources: Array<{ id: string; title: string; url: string }>;
+  benchmarkMode?: boolean;
 }) {
+  const benchmarkRules = input.benchmarkMode
+    ? `
+标杆案例生产要求：
+1. 本次目标不是摘要，而是生成接近正式案例报告的证据底座；请尽可能把可追溯资料拆解成足够支撑长文的 claims。
+2. 若输入只有项目名称，必须把联网资料作为主要证据，不得因为原始资料短就降低兼容性。
+3. 资料允许时，claims 目标为 18—36 条，覆盖七个章节；每章至少尝试形成 2 条可来源追溯的陈述。
+4. 必须重点提取：建设背景、建设目标、系统架构、核心模块、业务闭环、数据资源、运营机制、获奖/验收/应用成效、复制条件、风险边界。
+5. 对“成果、奖项、成效、建设单位、实施单位、地点”等高风险事实，必须保留 sourceIds；证据不足时进入 reviewItems，不要改写成确定事实。
+6. 对平台界面、大屏、架构图、现场图等图片线索，应在 reviewItems 中提示需要匹配或补充的图片类型。
+`
+    : "";
   return `你是 Digital X 城市数智应用案例库的事实与证据分析器。请按照原生协议 V1.0 输出事实证据包。
 
 原则：
@@ -607,6 +619,7 @@ export function nativeEvidencePrompt(input: {
 10. 不要只提取摘要。原始资料或联网摘要中明确出现的建设问题、数据、系统动作、业务角色、应用结果、实施运营、限制条件和量化指标都要进入对应结构。
 11. 资料较完整时，应形成覆盖多个章节的证据集合；每个有证据支撑的章节至少输出一条 claim，但不得为凑数量制造陈述。
 12. 只返回 JSON，不要返回文章，不要使用 Markdown。
+${benchmarkRules}
 
 返回结构：
 {
@@ -646,7 +659,18 @@ export function nativeIdentityPrompt(input: {
   sourceText: string;
   sourceUrl: string;
   mediaCandidates: unknown[];
+  benchmarkMode?: boolean;
 }) {
+  const benchmarkRules = input.benchmarkMode
+    ? `
+标杆案例生产要求：
+1. 允许“仅输入项目名称”作为合法输入；只要文本明显是某个项目、平台、系统或工程名称，就 compatible=true。
+2. 输入较短时，不要因为材料不完整而拒绝；先生成候选身份，后续通过联网研究补全。
+3. case.title 优先提取项目/平台/系统的正式名称；文章标题、获奖标题、宣传语只能作为 candidates 或 sourceTitle。
+4. 若项目名称包含场馆、片区、平台、系统等具体对象，但地区不明确，先根据名称和常识线索低置信推断城市，confidence 不高于0.55，并写入 reviewItems。
+5. 标杆模式下 summary、painPoints、solution 只做初步草稿，不能代替最终报告。
+`
+    : "";
   return `你是 Digital X 城市数智应用案例库的项目身份与基础字段解析器。请输出原生协议 V1.0 的第一阶段结果，不要生成长文。
 
 规则：
@@ -659,6 +683,7 @@ export function nativeIdentityPrompt(input: {
 7. 只返回JSON，不生成article、researchSources或researchReport。
 8. category 必须从以下12类中选择唯一一项：数字政府、规划建设、城市治理、市政韧性、交通出行、生态低碳、工业园区、农业农村、文旅体育、公共民生、商贸物流、数据要素。
 9. 分类依据是项目主要解决的业务问题，不是技术名称。AI、BIM、CIM、GIS、数字孪生、物联网应进入 aiTags；大型场馆建设运营归文旅体育。
+${benchmarkRules}
 
 返回结构：
 {
@@ -694,21 +719,38 @@ export function nativeArticlePrompt(input: {
   evidence: NativeEvidencePackage;
   availableSources: Array<{ id: string; title: string; url: string }>;
   mediaCandidateIds: string[];
+  benchmarkMode?: boolean;
 }) {
-  return `你是 Digital X 城市数智应用案例库的资深案例编辑。请根据已经完成的事实证据包，生成原生协议 V1.0 七章正文包。
+  const benchmarkRules = input.benchmarkMode
+    ? `
+标杆报告写作要求：
+1. 本次输出目标是“案例报告草稿”，不是摘要。资料支撑充足时 contentLevel 应为 deep。
+2. 全文目标 5,000—12,000 个中文字符；每章通常 4—8 个自然段，每段围绕一个事实链展开。
+3. 文风参考政府/行业优秀案例集：先交代项目事实，再解释问题，再展开建设内容、业务闭环、应用价值和复制条件。
+4. 每章必须有清晰主次：开头给本章判断，随后展开事实、机制和价值；不得堆砌短句。
+5. “核心场景与业务闭环”要尽量写成 problem → dataInputs → systemActions → businessActions → result 的闭环表达。
+6. “实施与运营”要说明建设、运维、使用、数据协同、组织机制；资料不足则明确边界。
+7. “创新与实际成效”只能写有证据的获奖、验收、应用或成效；缺少量化数据时写成定性价值并标注证据边界。
+8. “经验、边界与适用条件”必须加入 Digital X 案例评审视角，说明为什么值得入库、什么不能夸大、复用需要哪些前提。
+9. mediaIds 优先放入平台界面、大屏、架构图、现场图；没有图片时仍在 points 中提示“建议补充××图片”。
+10. 不得为了达到字数编造来源中不存在的单位、金额、指标或功能。
+`
+    : "";
+  return `你是 Digital X 城市数智应用案例库的资深案例编辑。请根据已经完成的事实证据包，生成原生协议 V1.0 案例正文包。
 
 写作规则：
 1. 只能使用 evidence 中的事实，不得新增单位、金额、时间、参数或成效。
 2. 每个章节必须通过 claimIds 引用事实陈述；没有 claim 支撑的内容不得写入正文。
-3. 全文固定七章：项目概况、为什么建设、如何建设、核心场景与业务闭环、实施与运营、创新与实际成效、经验边界与适用条件。
+3. 输出结构用于后台结构化存储，前台只展示有实质内容的章节；不要为了凑齐框架重复表达。
 4. 公开证据不足时生成 quick；资料充足生成 standard；多源且实施成效充分才生成 deep。
 5. standard 目标3000—6000字，但证据不足时不得重复或灌水。
 6. 成效章节只引用 innovation_outcomes 的有来源 claim；计划目标不得写成实际成效。
 7. mediaIds 只能使用给定图片候选 id；不确定时返回空数组。
-8. sections 数组必须严格返回下面列出的七个章节，顺序和 id 不得改变、不得省略、不得重复。
-9. 某章没有可用 claim 时仍保留该章节，summary 写“现有证据不足，待补充资料后完善本章。”，其他内容留空；不得为了填满章节编造事实。
+8. sections 数组按下面的 id 返回；没有可用 claim 的章节保持 summary、paragraphs、points 为空，不得生成“待完善”等前台占位文字。
+9. keyFindings 只写3—4条能回答项目解决什么问题、如何建设、形成什么价值的业务判断；禁止写系统识别、导入过程、地图推断、关键词或资料复核说明。
 10. paragraphs 应形成连续可读正文，points 只保留确有价值的提炼，不得重复 paragraphs。
 11. 只返回 JSON，不使用 Markdown。
+${benchmarkRules}
 
 返回结构：
 {

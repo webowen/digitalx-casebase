@@ -22,6 +22,7 @@ import { getPublishedCases } from "@/lib/mock-cases";
 import { parseReportFile } from "@/lib/report-file-import";
 import { createCaseFromImportedReport, createCaseFromReport } from "@/lib/report-import";
 import { normalizeProjectTitle } from "@/lib/ai-case-native-protocol";
+import { navigateCity, navigateNational, navigateProvince, selectCase, type MapLevel } from "@/lib/map-navigation";
 import {
   getAdministrativeFocusPlace,
   getCityOptions,
@@ -29,7 +30,6 @@ import {
 } from "@/lib/china-administrative-options";
 
 type DirectoryMode = "category" | "region" | "topic";
-type MapLevel = "national" | "province" | "city";
 type FilterValue = "全部" | string;
 
 type DirectorySubgroup = { label: string; cases: SmartCityCase[] };
@@ -437,7 +437,7 @@ export default function MapWorkbench() {
   const [evidenceLevel, setEvidenceLevel] = useState<FilterValue>("全部");
   const [activeProvince, setActiveProvince] = useState<FilterValue>("全部");
   const [activeCity, setActiveCity] = useState<FilterValue>("全部");
-  const [selectedCaseSlug, setSelectedCaseSlug] = useState("");
+  const [selectedCaseId, setSelectedCaseId] = useState("");
   const [caseFocusRequest, setCaseFocusRequest] = useState(0);
   const [documentOpen, setDocumentOpen] = useState(false);
   const [reportImportOpen, setReportImportOpen] = useState(false);
@@ -465,9 +465,9 @@ export default function MapWorkbench() {
     setEvidenceLevel(params.get("evidence") ?? "全部");
     setActiveProvince(params.get("province") ?? "全部");
     setActiveCity(params.get("city") ?? "全部");
-    const caseSlug = params.get("case") ?? "";
-    setSelectedCaseSlug(caseSlug);
-    setDocumentOpen(Boolean(caseSlug) && params.get("view") === "document");
+    const caseId = params.get("case") ?? "";
+    setSelectedCaseId(caseId);
+    setDocumentOpen(Boolean(caseId) && params.get("view") === "document");
     if (["national", "province", "city"].includes(level ?? "")) {
       setMapLevel(level as MapLevel);
     }
@@ -533,8 +533,8 @@ export default function MapWorkbench() {
     if (evidenceLevel !== "全部") params.set("evidence", evidenceLevel);
     if (activeProvince !== "全部") params.set("province", activeProvince);
     if (activeCity !== "全部") params.set("city", activeCity);
-    if (selectedCaseSlug) params.set("case", selectedCaseSlug);
-    if (selectedCaseSlug && documentOpen) params.set("view", "document");
+    if (selectedCaseId) params.set("case", selectedCaseId);
+    if (selectedCaseId && documentOpen) params.set("view", "document");
     if (mapLevel !== "national") params.set("level", mapLevel);
     if (directoryMode !== "category") params.set("directory", directoryMode);
     const query = params.toString();
@@ -548,7 +548,7 @@ export default function MapWorkbench() {
     evidenceLevel,
     keyword,
     mapLevel,
-    selectedCaseSlug,
+    selectedCaseId,
     urlReady,
     year,
   ]);
@@ -624,14 +624,12 @@ export default function MapWorkbench() {
     [localCases],
   );
   const selectedCase = useMemo(
-    () => publishedCases.find((item) => item.slug === selectedCaseSlug) ?? null,
-    [publishedCases, selectedCaseSlug],
+    () => publishedCases.find((item) => item.id === selectedCaseId || item.slug === selectedCaseId) ?? null,
+    [publishedCases, selectedCaseId],
   );
   const activeSelectedCase = useMemo(
     () =>
-      selectedCase && visibleCases.some((item) => item.id === selectedCase.id)
-        ? selectedCase
-        : null,
+      selectedCase && visibleCases.some((item) => item.id === selectedCase.id) ? selectedCase : null,
     [selectedCase, visibleCases],
   );
   const casePoints = useMemo<AMapCasePoint[]>(
@@ -641,6 +639,7 @@ export default function MapWorkbench() {
         title: displayCaseTitle(item),
         city: item.city,
         province: item.province,
+        district: item.district,
         category: item.category,
         lng: item.lng,
         lat: item.lat,
@@ -670,49 +669,70 @@ export default function MapWorkbench() {
     [activeCity, activeProvince, mapLevel],
   );
   const focusCaseOnMap = useCallback((item: SmartCityCase) => {
-    setSelectedCaseSlug(item.slug);
+    const next = selectCase({ level: mapLevel, province: activeProvince, city: activeCity, selectedCaseId, documentOpen }, item, "directory");
+    setMapLevel(next.level);
+    setActiveProvince(next.province);
+    setActiveCity(next.city);
+    setSelectedCaseId(next.selectedCaseId);
     setCaseFocusRequest((request) => request + 1);
-    setDocumentOpen(false);
+    setDocumentOpen(next.documentOpen);
     setLeftOpen(false);
-  }, []);
+  }, [activeCity, activeProvince, documentOpen, mapLevel, selectedCaseId]);
 
   const selectCasePoint = useCallback((id: string) => {
     const item = publishedCases.find((entry) => entry.id === id);
     if (!item) return;
-    setSelectedCaseSlug(item.slug);
-    setDocumentOpen(true);
-  }, [publishedCases]);
+    const next = selectCase({ level: mapLevel, province: activeProvince, city: activeCity, selectedCaseId, documentOpen }, item, "poi");
+    setMapLevel(next.level);
+    setActiveProvince(next.province);
+    setActiveCity(next.city);
+    setSelectedCaseId(next.selectedCaseId);
+    setDocumentOpen(next.documentOpen);
+  }, [activeCity, activeProvince, documentOpen, mapLevel, publishedCases, selectedCaseId]);
 
   const selectCity = useCallback((city: string) => {
     if (city === "全部") {
-      setActiveCity("全部");
-      setActiveProvince("全部");
-      setSelectedCaseSlug("");
-      setDocumentOpen(false);
-      setMapLevel("national");
+      const next = navigateNational();
+      setActiveCity(next.city); setActiveProvince(next.province); setSelectedCaseId(next.selectedCaseId); setDocumentOpen(next.documentOpen); setMapLevel(next.level);
       return;
     }
     const firstCase = filteredByControls.find((item) => item.city === city);
-    setActiveCity(city);
-    setActiveProvince(firstCase?.province ?? "全部");
-    setSelectedCaseSlug("");
-    setDocumentOpen(false);
-    setMapLevel("city");
+    if (!firstCase) return;
+    const next = navigateCity(firstCase.province, city);
+    setActiveCity(next.city); setActiveProvince(next.province); setSelectedCaseId(next.selectedCaseId); setDocumentOpen(next.documentOpen); setMapLevel(next.level);
   }, [filteredByControls]);
+
+  const enterShenzhenPilot = useCallback(() => {
+    const next = navigateCity("广东省", "深圳市");
+    setActiveProvince(next.province);
+    setActiveCity(next.city);
+    setSelectedCaseId(next.selectedCaseId);
+    setDocumentOpen(next.documentOpen);
+    setMapLevel(next.level);
+  }, []);
+
+  const enterGuangdongView = useCallback(() => {
+    const next = navigateProvince("广东省");
+    setActiveProvince(next.province);
+    setActiveCity(next.city);
+    setSelectedCaseId(next.selectedCaseId);
+    setDocumentOpen(next.documentOpen);
+    setMapLevel(next.level);
+  }, []);
 
   function setLevel(level: MapLevel) {
     setMapLevel(level);
     if (level === "national") {
       setActiveProvince("全部");
       setActiveCity("全部");
-      setSelectedCaseSlug("");
+      setSelectedCaseId("");
       setDocumentOpen(false);
     } else if (level === "province") {
       setActiveCity("全部");
-      setSelectedCaseSlug("");
+      setSelectedCaseId("");
       setDocumentOpen(false);
     } else if (level === "city") {
-      setSelectedCaseSlug("");
+      setSelectedCaseId("");
       setDocumentOpen(false);
     }
   }
@@ -724,7 +744,7 @@ export default function MapWorkbench() {
     setEvidenceLevel("全部");
     setActiveProvince("全部");
     setActiveCity("全部");
-    setSelectedCaseSlug("");
+    setSelectedCaseId("");
     setDocumentOpen(false);
     setMapLevel("national");
   }, []);
@@ -736,14 +756,14 @@ export default function MapWorkbench() {
   const deleteCase = useCallback(async (item: SmartCityCase) => {
     const nextCases = await removeLocalCase(item.id);
     setLocalCases(nextCases);
-    if (selectedCaseSlug === item.slug) {
-      setSelectedCaseSlug("");
+    if (selectedCaseId === item.id) {
+      setSelectedCaseId("");
       setDocumentOpen(false);
       setMapLevel("national");
       setActiveProvince("全部");
       setActiveCity("全部");
     }
-  }, [selectedCaseSlug]);
+  }, [selectedCaseId]);
 
   const publishImportedCase = useCallback(async (importedCase: SmartCityCase) => {
     const confirmedCase: SmartCityCase = {
@@ -754,7 +774,7 @@ export default function MapWorkbench() {
     };
     const nextCases = await saveLocalCase(confirmedCase);
     setLocalCases(nextCases);
-    setSelectedCaseSlug(confirmedCase.slug);
+    setSelectedCaseId(confirmedCase.id);
     setMapLevel("city");
     setDocumentOpen(false);
     setReportImportText("");
@@ -905,7 +925,7 @@ export default function MapWorkbench() {
           <span className="sr-only">全局搜索案例</span>
           <input
             value={keyword}
-            onChange={(event) => setKeyword(event.target.value)}
+            onChange={(event) => { setKeyword(event.target.value); setSelectedCaseId(""); setDocumentOpen(false); }}
             placeholder="搜索项目、城市、场景或建设内容"
             className="brand-search h-10 w-full rounded-xl px-4 pr-10 text-sm outline-none transition"
           />
@@ -937,10 +957,10 @@ export default function MapWorkbench() {
           <section className="w-full max-w-xl rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl" onMouseDown={(event) => event.stopPropagation()}>
             <div className="flex items-center justify-between"><div><p className="brand-eyebrow text-[10px] font-bold">FILTERS</p><h2 className="mt-1 text-lg font-semibold">筛选案例</h2></div><button type="button" onClick={() => setFilterOpen(false)} className="rounded p-2 text-slate-500 hover:bg-slate-100">×</button></div>
             <div className="mt-4 grid gap-3 sm:grid-cols-2">
-              <label className="text-xs text-slate-500">应用分类<select value={category} onChange={(event) => setCategory(event.target.value as CaseCategory | "全部")} className="mt-1 h-10 w-full rounded-md border border-slate-200 bg-white px-2.5 text-xs"><option value="全部">全部分类</option>{categories.map((item) => <option key={item}>{item}</option>)}</select></label>
-              <label className="text-xs text-slate-500">地区<select value={activeProvince} onChange={(event) => { const value = event.target.value; setActiveProvince(value); setActiveCity("全部"); setMapLevel(value === "全部" ? "national" : "province"); }} className="mt-1 h-10 w-full rounded-md border border-slate-200 bg-white px-2.5 text-xs"><option value="全部">全国</option>{provinces.map((item) => <option key={item}>{item}</option>)}</select></label>
-              <label className="text-xs text-slate-500">年份<select value={year} onChange={(event) => setYear(event.target.value)} className="mt-1 h-10 w-full rounded-md border border-slate-200 bg-white px-2.5 text-xs"><option value="全部">全部年份</option>{allYears.map((item) => <option key={item}>{item}</option>)}</select></label>
-              <label className="text-xs text-slate-500">证据等级<select value={evidenceLevel} onChange={(event) => setEvidenceLevel(event.target.value)} className="mt-1 h-10 w-full rounded-md border border-slate-200 bg-white px-2.5 text-xs"><option value="全部">全部证据</option>{evidenceLevels.map((item) => <option key={item}>{item}</option>)}</select></label>
+              <label className="text-xs text-slate-500">应用分类<select value={category} onChange={(event) => { setCategory(event.target.value as CaseCategory | "全部"); setSelectedCaseId(""); setDocumentOpen(false); }} className="mt-1 h-10 w-full rounded-md border border-slate-200 bg-white px-2.5 text-xs"><option value="全部">全部分类</option>{categories.map((item) => <option key={item}>{item}</option>)}</select></label>
+              <label className="text-xs text-slate-500">地区<select value={activeProvince} onChange={(event) => { const next = navigateProvince(event.target.value); setActiveProvince(next.province); setActiveCity(next.city); setSelectedCaseId(next.selectedCaseId); setDocumentOpen(next.documentOpen); setMapLevel(next.level); }} className="mt-1 h-10 w-full rounded-md border border-slate-200 bg-white px-2.5 text-xs"><option value="全部">全国</option>{provinces.map((item) => <option key={item}>{item}</option>)}</select></label>
+              <label className="text-xs text-slate-500">年份<select value={year} onChange={(event) => { setYear(event.target.value); setSelectedCaseId(""); setDocumentOpen(false); }} className="mt-1 h-10 w-full rounded-md border border-slate-200 bg-white px-2.5 text-xs"><option value="全部">全部年份</option>{allYears.map((item) => <option key={item}>{item}</option>)}</select></label>
+              <label className="text-xs text-slate-500">证据等级<select value={evidenceLevel} onChange={(event) => { setEvidenceLevel(event.target.value); setSelectedCaseId(""); setDocumentOpen(false); }} className="mt-1 h-10 w-full rounded-md border border-slate-200 bg-white px-2.5 text-xs"><option value="全部">全部证据</option>{evidenceLevels.map((item) => <option key={item}>{item}</option>)}</select></label>
             </div>
             <div className="mt-5 flex justify-between"><button type="button" onClick={clearFilters} className="text-xs text-slate-500 hover:text-slate-900">清空筛选</button><button type="button" onClick={() => setFilterOpen(false)} className="brand-gradient-button rounded-full px-5 py-2 text-xs font-semibold text-white">查看 {visibleCases.length} 个案例</button></div>
           </section>
@@ -1120,13 +1140,15 @@ export default function MapWorkbench() {
           <AMapCaseMap
             cities={cities}
             casePoints={casePoints}
-            displayMode="case"
+            unmappedCaseCount={Math.max(0, visibleCases.length - mappableVisibleCases.length)}
+            displayMode={mapLevel}
             administrativeFocus={administrativeFocus}
             activeCity={activeCity}
             activeCaseId={activeSelectedCase?.id}
             caseFocusRequest={caseFocusRequest}
             onSelectCity={selectCity}
             onSelectCase={selectCasePoint}
+            onEnterShenzhen={enterShenzhenPilot}
             onClearFilters={clearFilters}
             className="h-full min-h-[420px]"
           />
@@ -1141,15 +1163,37 @@ export default function MapWorkbench() {
             >
               全国
             </button>
+            <button
+              type="button"
+              onClick={enterGuangdongView}
+              className={`rounded px-2.5 py-1.5 text-[11px] font-medium ${
+                mapLevel === "province" && activeProvince === "广东省"
+                  ? "bg-cyan-50 text-cyan-700 ring-1 ring-cyan-200"
+                  : "text-slate-600 hover:bg-cyan-50 hover:text-cyan-700"
+              }`}
+            >
+              广东省
+            </button>
+            <button
+              type="button"
+              onClick={enterShenzhenPilot}
+              className={`rounded px-2.5 py-1.5 text-[11px] font-medium ${
+                mapLevel === "city" && activeCity === "深圳市"
+                  ? "bg-cyan-50 text-cyan-700 ring-1 ring-cyan-200"
+                  : "text-slate-600 hover:bg-cyan-50 hover:text-cyan-700"
+              }`}
+            >
+              深圳市
+            </button>
             <select
               value={activeProvince}
               onChange={(event) => {
-                const value = event.target.value;
-                setActiveProvince(value);
-                setActiveCity("全部");
-                setSelectedCaseSlug("");
-                setDocumentOpen(false);
-                setMapLevel(value === "全部" ? "national" : "province");
+                const next = navigateProvince(event.target.value);
+                setActiveProvince(next.province);
+                setActiveCity(next.city);
+                setSelectedCaseId(next.selectedCaseId);
+                setDocumentOpen(next.documentOpen);
+                setMapLevel(next.level);
               }}
               className="h-7 rounded-md border border-slate-200 bg-white px-2 text-[11px] font-medium text-slate-700 outline-none focus:border-cyan-400"
             >
@@ -1159,11 +1203,12 @@ export default function MapWorkbench() {
             <select
               value={activeCity}
               onChange={(event) => {
-                const value = event.target.value;
-                setActiveCity(value);
-                setSelectedCaseSlug("");
-                setDocumentOpen(false);
-                setMapLevel(value === "全部" ? (activeProvince === "全部" ? "national" : "province") : "city");
+                const next = navigateCity(activeProvince, event.target.value);
+                setActiveProvince(next.province);
+                setActiveCity(next.city);
+                setSelectedCaseId(next.selectedCaseId);
+                setDocumentOpen(next.documentOpen);
+                setMapLevel(next.level);
               }}
               disabled={activeProvince === "全部"}
               className="h-7 rounded-md border border-slate-200 bg-white px-2 text-[11px] font-medium text-slate-700 outline-none focus:border-cyan-400 disabled:bg-slate-50 disabled:text-slate-300"
@@ -1182,6 +1227,34 @@ export default function MapWorkbench() {
               {activeCity !== "全部" ? ` / ${activeCity}` : ""} 当前 {visibleCases.length} 项
             </p>
           </div>
+
+          {activeSelectedCase && !documentOpen && (
+            <div className="absolute bottom-8 left-1/2 z-20 flex w-[min(560px,calc(100%-32px))] -translate-x-1/2 items-center gap-3 rounded-xl border border-sky-200 bg-white/95 p-3 shadow-xl backdrop-blur-md">
+              <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-cyan-500 ring-4 ring-cyan-100" />
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-semibold text-slate-900">{displayCaseTitle(activeSelectedCase)}</p>
+                <p className="mt-0.5 text-[11px] text-slate-500">
+                  {activeSelectedCase.province} · {activeSelectedCase.city}{activeSelectedCase.district ? ` · ${activeSelectedCase.district}` : ""}
+                  {activeSelectedCase.locationLevel !== "园区/项目点" ? " · 区域级定位" : " · 已核验项目点"}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setDocumentOpen(true)}
+                className="brand-gradient-button shrink-0 rounded-full px-4 py-2 text-xs font-semibold text-white"
+              >
+                查看案例
+              </button>
+              <button
+                type="button"
+                aria-label="取消选择"
+                onClick={() => setSelectedCaseId("")}
+                className="shrink-0 rounded-md px-2 py-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+              >
+                ×
+              </button>
+            </div>
+          )}
 
           {activeSelectedCase && documentOpen && (
             <div className="case-document-layer">

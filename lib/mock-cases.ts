@@ -1,7 +1,9 @@
 import type { SmartCityCase } from "./case-model";
 import { migrateBuiltInCases } from "./benchmark-cases";
 
-const legacySmartCityCases: SmartCityCase[] = [
+const legacySmartCityCases: SmartCityCase[] = [];
+
+export const retiredDemoCases: SmartCityCase[] = [
   {
     id: "case-001",
     slug: "shenzhen-low-altitude-airspace-service",
@@ -546,6 +548,8 @@ const legacySmartCityCases: SmartCityCase[] = [
     sourceNote: "演示数据：后续补充调用场景清单。",
   },
 ];
+
+export const retiredSmartCityCases = migrateBuiltInCases(retiredDemoCases);
 
 export const smartCityCases = migrateBuiltInCases(legacySmartCityCases);
 

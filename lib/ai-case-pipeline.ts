@@ -218,6 +218,7 @@ export async function runCaseParserPipeline(
   input: ProviderInput,
 ): Promise<CaseParserResponse> {
   const startedAt = new Date();
+  const benchmarkMode = input.productionMode === "benchmark";
   const stages: CasePipelineStage[] = [
     stage(
       "input_validation",
@@ -227,8 +228,12 @@ export async function runCaseParserPipeline(
       {
         inputSummary: input.file
           ? `PDF：${input.file.name}（${input.file.size} bytes）`
-          : `正文：${input.sourceText.length.toLocaleString()} 字符`,
-        outputSummary: "输入可进入解析任务链。",
+          : benchmarkMode
+            ? `标杆项目线索：${input.sourceText.length.toLocaleString()} 字符`
+            : `正文：${input.sourceText.length.toLocaleString()} 字符`,
+        outputSummary: benchmarkMode
+          ? "输入可进入标杆案例自动生产链。"
+          : "输入可进入解析任务链。",
         retryable: false,
       },
     ),
@@ -259,8 +264,9 @@ export async function runCaseParserPipeline(
           sourceText: input.sourceText,
           sourceUrl: input.sourceUrl,
           mediaCandidates: input.mediaCandidates || [],
+          benchmarkMode,
         }),
-        8_000,
+        benchmarkMode ? 10_000 : 8_000,
       );
       const identityPackage = normalizeNativeIdentityPackage(
         identityResult.value,
@@ -419,7 +425,7 @@ export async function runCaseParserPipeline(
         fallbackUsed: Boolean(basicFallbackReason),
         fallbackReason: basicFallbackReason,
         pipeline: {
-          version: "1.1",
+        version: "1.1",
           startedAt: startedAt.toISOString(),
           completedAt: new Date().toISOString(),
           status: "blocked",
@@ -499,8 +505,9 @@ export async function runCaseParserPipeline(
         },
         researchContext: research?.context || "",
         availableSources,
+        benchmarkMode,
       }),
-      12_000,
+      benchmarkMode ? 18_000 : 12_000,
     );
     evidence = normalizeNativeEvidencePackage(
       evidenceResult.value,
@@ -583,8 +590,9 @@ export async function runCaseParserPipeline(
           mediaCandidateIds: (input.mediaCandidates || []).map(
             (candidate) => candidate.id,
           ),
+          benchmarkMode,
         }),
-        16_000,
+        benchmarkMode ? 24_000 : 16_000,
       );
       nativeArticle = normalizeNativeArticlePackage(
         articleResult.value,
@@ -602,13 +610,28 @@ export async function runCaseParserPipeline(
       stages.push(
         stage(
           "article_generation",
-          substantiveSectionCount === 7 ? "completed" : "degraded",
-          `已生成固定七章结构，其中 ${substantiveSectionCount} 章获得事实陈述支撑，内容等级为 ${nativeArticle.contentLevel}。`,
+          substantiveSectionCount === 7 &&
+            (!benchmarkMode ||
+              nativeArticle.sections.reduce(
+                (total, section) =>
+                  total +
+                  section.summary.length +
+                  section.paragraphs.join("").length +
+                  section.points.join("").length,
+                0,
+              ) >= 3_000)
+            ? "completed"
+            : "degraded",
+          benchmarkMode
+            ? `标杆报告草稿已生成：${substantiveSectionCount} 个实质章节获得事实陈述支撑，内容等级为 ${nativeArticle.contentLevel}。`
+            : `案例正文已生成，其中 ${substantiveSectionCount} 个实质章节获得事实陈述支撑，内容等级为 ${nativeArticle.contentLevel}。`,
           Date.now() - articleStartedAt,
           {
             ...usageDetails(articleResult),
             inputSummary: `${evidence.claims.length} 条陈述、${evidence.scenarios.length} 个业务场景和 ${evidence.metrics.length} 项指标`,
-            outputSummary: `7 个固定章节、${substantiveSectionCount} 个实质章节、${nativeArticle.keyFindings.length} 条关键结论`,
+            outputSummary: benchmarkMode
+              ? `${substantiveSectionCount} 个实质章节、${nativeArticle.keyFindings.length} 条关键结论`
+              : `${substantiveSectionCount} 个实质章节、${nativeArticle.keyFindings.length} 条关键结论`,
           },
         ),
       );
@@ -617,7 +640,7 @@ export async function runCaseParserPipeline(
         stage(
           "article_generation",
           "degraded",
-          `原生七章写作失败，已保留基础结构化文章：${errorMessage(error)}`,
+          `正文写作失败，已保留基础结构化文章：${errorMessage(error)}`,
           Date.now() - articleStartedAt,
           {
             attempts: 1,
@@ -676,8 +699,12 @@ export async function runCaseParserPipeline(
   stages.push(
     stage(
       "quality_review",
-      contentModel.quality.score >= 70 ? "completed" : "degraded",
-      `规范质量评分 ${contentModel.quality.score}/100；发现 ${contentModel.quality.blockingIssues.length} 项发布阻断和 ${contentModel.quality.warnings.length} 项改进建议。`,
+      contentModel.quality.score >= (benchmarkMode ? 78 : 70)
+        ? "completed"
+        : "degraded",
+      benchmarkMode
+        ? `标杆案例质量评分 ${contentModel.quality.score}/100；目标不低于78分，发现 ${contentModel.quality.blockingIssues.length} 项发布阻断和 ${contentModel.quality.warnings.length} 项改进建议。`
+        : `规范质量评分 ${contentModel.quality.score}/100；发现 ${contentModel.quality.blockingIssues.length} 项发布阻断和 ${contentModel.quality.warnings.length} 项改进建议。`,
       0,
       {
         inputSummary: `${contentModel.claims.length} 条陈述、${contentModel.editorialSections.length} 个章节和 ${contentModel.sources.length} 个来源`,
@@ -688,7 +715,9 @@ export async function runCaseParserPipeline(
     stage(
       "human_review_pending",
       "pending",
-      "AI 只生成待复核草稿；正式名称、证据、图片、指标和位置需人工确认。",
+      benchmarkMode
+        ? "标杆报告已生成待确认草稿；人工只需重点核对高风险事实、图片使用和发布边界。"
+        : "AI 只生成待复核草稿；正式名称、证据、图片、指标和位置需人工确认。",
       0,
       {
         inputSummary: "AI规范草稿",
@@ -706,7 +735,7 @@ export async function runCaseParserPipeline(
       ? "degraded"
       : "completed";
   const pipeline: CasePipelineRun = {
-    version: "1.1",
+    version: benchmarkMode ? "1.2" : "1.1",
     startedAt: startedAt.toISOString(),
     completedAt: new Date().toISOString(),
     status,
@@ -770,6 +799,7 @@ export async function runCaseParserPipeline(
       inputTokens,
       outputTokens,
       researchMode: input.researchMode,
+      benchmarkMode,
       searchQueryCount: researchQueries.length,
       estimatedCostCny,
       fallbackUsed: fallbackReasons.length > 0,

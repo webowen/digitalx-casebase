@@ -6,20 +6,37 @@ import {
   caseDocumentSectionTitles,
 } from "../lib/case-document";
 import { normalizeCaseContentModel } from "../lib/case-content-model";
-import { smartCityCases } from "../lib/mock-cases";
+import { retiredSmartCityCases as smartCityCases } from "../lib/mock-cases";
 
-test("builds a fixed seven-part case document for legacy cases", () => {
+test("hides empty framework sections instead of forcing a seven-part document", () => {
   const document = buildCaseDocument(smartCityCases[0]);
 
-  assert.deepEqual(
-    document.sections.map((section) => section.id),
-    caseDocumentSectionOrder,
-  );
-  assert.deepEqual(
-    document.sections.map((section) => section.title),
-    caseDocumentSectionOrder.map((id) => caseDocumentSectionTitles[id]),
-  );
-  assert.equal(document.sections.length, 7);
+  assert.ok(document.sections.length < caseDocumentSectionOrder.length);
+  assert.ok(document.sections.every((section) =>
+    Boolean(section.summary || section.paragraphs.length || section.points.length || section.media.length || section.scenarios.length),
+  ));
+  assert.ok(document.sections.every((section) =>
+    caseDocumentSectionTitles[section.id] === section.title,
+  ));
+});
+
+test("preserves the original headings of an imported mature report", async () => {
+  const { createCaseFromReport } = await import("../lib/report-import");
+  const item = createCaseFromReport(`
+# 大湾区文化体育中心智慧运营管理平台
+
+## 一、建设背景
+大型场馆建成之后，真正的难题是长期运营管理。
+
+## 二、建设内容
+平台关联空间、设备、告警和工单，支撑事件处置闭环。
+`);
+  const document = buildCaseDocument(item);
+
+  assert.equal(document.title, "大湾区文化体育中心智慧运营管理平台");
+  assert.equal(document.preservesSourceStructure, true);
+  assert.deepEqual(document.sections.map((section) => section.title), ["一、建设背景", "二、建设内容"]);
+  assert.deepEqual(document.keyFindings, []);
 });
 
 test("prefers native editorial sections over conflicting legacy article content", () => {

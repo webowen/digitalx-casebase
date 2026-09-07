@@ -153,7 +153,7 @@ export function ContentProductionBoard({
               17份案例分三批生产，不执行低质量一键扩写
             </h2>
             <p className="mt-1 max-w-3xl text-xs leading-5 text-slate-500">
-              每份案例必须依次经过项目身份、联网研究、证据包、七章成稿、质量检查和人工终审。
+              每份案例必须依次经过项目身份、联网研究、证据整理、正文成稿、质量检查和人工终审。
               第一批优先处理城市底座、安全韧性及用户重点业务方向。
             </p>
           </div>

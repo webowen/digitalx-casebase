@@ -12,4 +12,3 @@ test("published knowledge-base assets enter the public case collection", () => {
 test("only published assets enter the public collection", () => {
   assert.ok(publishedCaseAssets.every((item) => item.asset?.contentStatus === "published"));
 });
-

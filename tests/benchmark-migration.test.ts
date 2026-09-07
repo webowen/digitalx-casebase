@@ -7,7 +7,21 @@ import {
   migrationBatchId,
 } from "../lib/benchmark-cases";
 import { buildCaseDocument } from "../lib/case-document";
-import { smartCityCases } from "../lib/mock-cases";
+import { retiredSmartCityCases as smartCityCases, smartCityCases as liveSmartCityCases } from "../lib/mock-cases";
+
+test("keeps the live built-in case library empty after retiring demo data", () => {
+  const summary = getMigrationSummary(liveSmartCityCases);
+
+  assert.equal(liveSmartCityCases.length, 0);
+  assert.deepEqual(summary, {
+    total: 0,
+    migrated: 0,
+    benchmarkDrafts: 0,
+    approved: 0,
+    pendingReview: 0,
+    batchMigrated: 0,
+  });
+});
 
 test("migrates all V1.4 cases while preserving three benchmark identities", () => {
   const summary = getMigrationSummary(smartCityCases);

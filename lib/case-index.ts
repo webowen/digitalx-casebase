@@ -23,6 +23,7 @@ import part21 from "@/knowledge-base/index/digitalx_case_index_v1.part-21.json";
 import part22 from "@/knowledge-base/index/digitalx_case_index_v1.part-22.json";
 import part23 from "@/knowledge-base/index/digitalx_case_index_v1.part-23.json";
 import part24 from "@/knowledge-base/index/digitalx_case_index_v1.part-24.json";
+import shenzhenPoiAudit from "@/knowledge-base/index/shenzhen-poi-audit-v1.json";
 import {
   normalizeCaseCategory,
   type CaseCategory,
@@ -52,6 +53,21 @@ type IndexedCaseRow = {
   source_url?: string;
 };
 
+type ShenzhenPoiAuditRow = {
+  case_id: string;
+  status: "mapped" | "district" | "citywide" | "excluded";
+  district?: string;
+  lng?: number | null;
+  lat?: number | null;
+  poi_level: "exact" | "corridor" | "district" | "citywide" | "none";
+  poi_method: string;
+  poi_confidence: "high" | "medium" | "low";
+};
+
+const shenzhenPoiByCaseId = new Map(
+  (shenzhenPoiAudit as ShenzhenPoiAuditRow[]).map((item) => [item.case_id, item]),
+);
+
 function splitTerms(value?: string) {
   return String(value ?? "").split(/[；;,，]/).map((item) => item.trim()).filter(Boolean);
 }
@@ -76,7 +92,7 @@ function categoryFromRow(row: IndexedCaseRow): CaseCategory {
 
 function locationLevel(value?: string): LocationLevel {
   if (value === "district") return "区县级";
-  if (value === "exact") return "园区/项目点";
+  if (value === "exact" || value === "corridor") return "园区/项目点";
   if (value === "province") return "省级";
   return "市级";
 }
@@ -157,7 +173,27 @@ function readRows(input: IndexedCaseRow[] | CompactIndex) {
   return rows.map((values) => Object.fromEntries(input.schema.map((key, index) => [key, values[index]])) as IndexedCaseRow);
 }
 
-export const indexedCases = readRows(rawCaseIndex as unknown as IndexedCaseRow[] | CompactIndex).map(toIndexedCase);
+type AuditedIndexedCaseRow = IndexedCaseRow & { __poi_status?: ShenzhenPoiAuditRow["status"] };
+
+const auditedRows: AuditedIndexedCaseRow[] = readRows(rawCaseIndex as unknown as IndexedCaseRow[] | CompactIndex)
+  .map((row) => {
+    const audit = shenzhenPoiByCaseId.get(row.case_id);
+    if (!audit) return row;
+    return {
+      ...row,
+      district: audit.district ?? row.district,
+      lng: audit.lng,
+      lat: audit.lat,
+      poi_level: audit.poi_level,
+      poi_method: audit.poi_method,
+      poi_confidence: audit.poi_confidence,
+      __poi_status: audit.status,
+    } as AuditedIndexedCaseRow;
+  });
+
+export const indexedCases = auditedRows
+  .filter((row) => row.__poi_status !== "excluded")
+  .map(toIndexedCase);
 export const indexedCaseById = new Map(indexedCases.map((item) => [item.id, item]));
 export const indexedCaseStats = {
   total: indexedCases.length,

@@ -24,6 +24,10 @@ export async function POST(request: Request) {
   const sourceText = String(formData.get("sourceText") || "").trim();
   const sourceUrl = String(formData.get("sourceUrl") || "").trim();
   const researchMode = String(formData.get("researchMode") || "") === "true";
+  const productionMode =
+    String(formData.get("productionMode") || "") === "benchmark"
+      ? "benchmark"
+      : "standard";
   const fileValue = formData.get("file");
   const file = fileValue instanceof File && fileValue.size > 0 ? fileValue : null;
   const mediaCandidatesValue = String(formData.get("mediaCandidates") || "");
@@ -70,6 +74,7 @@ export async function POST(request: Request) {
       sourceUrl,
       file,
       researchMode,
+      productionMode,
       mediaCandidates,
     });
     return Response.json(response);

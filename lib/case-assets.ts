@@ -8,4 +8,3 @@ export const publishedCaseAssets = caseAssets.filter(
 export function getAssetCaseBySlug(slug: string) {
   return publishedCaseAssets.find((item) => item.slug === slug);
 }
-

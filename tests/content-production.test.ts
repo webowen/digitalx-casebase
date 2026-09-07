@@ -6,7 +6,7 @@ import {
   productionReadiness,
   productionSummary,
 } from "../lib/case-production";
-import { smartCityCases } from "../lib/mock-cases";
+import { retiredSmartCityCases as smartCityCases } from "../lib/mock-cases";
 
 test("beta.1 assigns the three benchmark cases to final review without auto approval", () => {
   const benchmarks = smartCityCases.filter(

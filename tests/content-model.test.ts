@@ -4,7 +4,7 @@ import {
   approveCaseContentModel,
   normalizeCaseContentModel,
 } from "../lib/case-content-model";
-import { smartCityCases } from "../lib/mock-cases";
+import { retiredSmartCityCases as smartCityCases } from "../lib/mock-cases";
 import type { SmartCityCase } from "../lib/case-model";
 
 test("normalizes every V1.4 built-in case without changing its public identity", () => {

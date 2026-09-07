@@ -153,3 +153,4 @@ for (const item of cases) {
 
 console.log(JSON.stringify(stats, null, 2));
 if (stats.failed > 0) process.exitCode = 1;
+

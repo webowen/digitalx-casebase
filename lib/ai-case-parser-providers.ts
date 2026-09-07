@@ -82,6 +82,7 @@ export type ProviderInput = {
   sourceUrl: string;
   file: File | null;
   researchMode: boolean;
+  productionMode?: "standard" | "benchmark";
   researchContext?: string;
   researchQueries?: string[];
   researchSources?: Array<{ title: string; url: string }>;
@@ -694,6 +695,7 @@ const MAX_ZHIPU_SEARCH_RESULTS = 24;
 const TAVILY_PAYG_SEARCH_COST_CNY = 0.0576;
 const MAX_TAVILY_SEARCH_QUERIES = 2;
 const MAX_TAVILY_SEARCH_RESULTS = 20;
+const MAX_BENCHMARK_SEARCH_QUERIES = 4;
 const MIN_STRUCTURED_ARTICLE_CHARACTERS = 3_000;
 
 type TencentWsaSearchResult = {
@@ -953,6 +955,30 @@ function buildResearchQueries(result: CaseParserOutput, sourceText: string) {
   return Array.from(
     new Set([identityQuery, evidenceQuery].filter((query) => query.length >= 2)),
   ).slice(0, Math.max(MAX_ZHIPU_SEARCH_QUERIES, MAX_TAVILY_SEARCH_QUERIES));
+}
+
+function buildBenchmarkResearchQueries(result: CaseParserOutput, sourceText: string) {
+  const base = buildResearchQueries(result, sourceText);
+  const caseItem = result.case;
+  const title = caseItem.title.trim() || result.identity.canonicalTitle.trim();
+  const region = [caseItem.province, caseItem.city, caseItem.district]
+    .filter(Boolean)
+    .join(" ");
+  const owner = caseItem.owner.trim();
+  const implementationUnit = caseItem.implementationUnit?.trim() || "";
+  const aliases = result.identity.candidates.slice(0, 3).join(" ");
+  const clue = sourceText.replace(/\s+/g, " ").slice(0, 80).trim();
+  const anchor = title || aliases || clue;
+  const queries = [
+    ...base,
+    [region, anchor, "智慧平台 案例 建设内容 核心功能"].filter(Boolean).join(" "),
+    [anchor, owner, implementationUnit, "招标 中标 建设单位 承建单位"].filter(Boolean).join(" "),
+    [anchor, "获奖 科创 大赛 运营 平台 大屏"].filter(Boolean).join(" "),
+    [region, anchor, "数字孪生 智慧运营 管理平台 图片 架构"].filter(Boolean).join(" "),
+  ];
+  return Array.from(
+    new Set(queries.map((query) => query.trim()).filter((query) => query.length >= 2)),
+  ).slice(0, MAX_BENCHMARK_SEARCH_QUERIES);
 }
 
 function parseZhipuSearchPayload(payload: unknown) {
@@ -2031,9 +2057,14 @@ export async function researchCaseSources(
 ): Promise<CaseResearchBundle> {
   const provider = configuredResearchProvider();
   if (provider === "tavily") {
-    const queries = buildResearchQueries(basic.result, input.sourceText).slice(
+    const queries = (input.productionMode === "benchmark"
+      ? buildBenchmarkResearchQueries(basic.result, input.sourceText)
+      : buildResearchQueries(basic.result, input.sourceText)
+    ).slice(
       0,
-      MAX_TAVILY_SEARCH_QUERIES,
+      input.productionMode === "benchmark"
+        ? MAX_BENCHMARK_SEARCH_QUERIES
+        : MAX_TAVILY_SEARCH_QUERIES,
     );
     const research = await gatherTavilyResearch(queries);
     return {
@@ -2047,9 +2078,14 @@ export async function researchCaseSources(
     };
   }
   if (provider === "zhipu") {
-    const queries = buildResearchQueries(basic.result, input.sourceText).slice(
+    const queries = (input.productionMode === "benchmark"
+      ? buildBenchmarkResearchQueries(basic.result, input.sourceText)
+      : buildResearchQueries(basic.result, input.sourceText)
+    ).slice(
       0,
-      MAX_ZHIPU_SEARCH_QUERIES,
+      input.productionMode === "benchmark"
+        ? MAX_BENCHMARK_SEARCH_QUERIES
+        : MAX_ZHIPU_SEARCH_QUERIES,
     );
     const research = await gatherZhipuResearch(queries);
     return {

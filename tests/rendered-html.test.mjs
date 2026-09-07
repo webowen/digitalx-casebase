@@ -141,7 +141,7 @@ test("renders the V1.4 map case workbench as the default home page", async () =>
   assert.match(html, /选择省份/);
 });
 
-test("directory selection focuses the map before a POI opens the document", async () => {
+test("directory and POI selection share the selectedCaseId navigation model", async () => {
   const source = await readFile(
     new URL("../app/workbench/page.tsx", import.meta.url),
     "utf8",
@@ -149,23 +149,23 @@ test("directory selection focuses the map before a POI opens the document", asyn
   assert.match(source, /parseReportFile/);
   assert.match(source, /accept="\.docx,\.zip,\.md,\.markdown"/);
   const focusCaseBody = source.match(
-    /const focusCaseOnMap = useCallback\(\(item: SmartCityCase\) => \{([\s\S]*?)\n  \}, \[\]\);/,
+    /const focusCaseOnMap = useCallback\(\(item: SmartCityCase\) => \{([\s\S]*?)\n  \}, \[[^\]]+\]\);/,
   )?.[1];
   const poiBody = source.match(
-    /const selectCasePoint = useCallback\(\(id: string\) => \{([\s\S]*?)\n  \}, \[publishedCases\]\);/,
+    /const selectCasePoint = useCallback\(\(id: string\) => \{([\s\S]*?)\n  \}, \[[^\]]+\]\);/,
   )?.[1];
 
   assert.ok(focusCaseBody);
   assert.ok(poiBody);
-  assert.match(focusCaseBody, /setSelectedCaseSlug\(item\.slug\)/);
+  assert.match(focusCaseBody, /selectCase\([^;]+"directory"\)/s);
+  assert.match(focusCaseBody, /setSelectedCaseId\(next\.selectedCaseId\)/);
   assert.match(focusCaseBody, /setCaseFocusRequest\(\(request\) => request \+ 1\)/);
-  assert.match(focusCaseBody, /setDocumentOpen\(false\)/);
-  assert.doesNotMatch(focusCaseBody, /setMapLevel\("project"\)/);
-  assert.doesNotMatch(focusCaseBody, /setActiveProvince/);
-  assert.doesNotMatch(focusCaseBody, /setActiveCity/);
-  assert.match(poiBody, /setDocumentOpen\(true\)/);
+  assert.match(focusCaseBody, /setActiveProvince\(next\.province\)/);
+  assert.match(focusCaseBody, /setActiveCity\(next\.city\)/);
+  assert.match(poiBody, /selectCase\([^;]+"poi"\)/s);
+  assert.match(poiBody, /setDocumentOpen\(next\.documentOpen\)/);
   assert.match(source, /caseFocusRequest=\{caseFocusRequest\}/);
-  assert.doesNotMatch(source, /className="case-poi-card"/);
+  assert.match(source, /查看案例/);
   assert.match(source, /选择省份/);
   assert.match(source, /选择城市/);
   assert.match(source, /provinceOptions/);
@@ -190,7 +190,17 @@ test("directory selection focuses the map before a POI opens the document", asyn
   assert.match(mapSource, /aria-label="地图底图切换"/);
   assert.match(mapSource, /卫星影像/);
   assert.doesNotMatch(mapSource, /amap:\/\/styles\/light/);
-  assert.match(mapSource, /clusterPoints = selectedPoint/);
+  assert.match(mapSource, /point\.id === selectedPoint\.id/);
+  assert.doesNotMatch(mapSource, /createShenzhenStarElement/);
+  assert.match(mapSource, /const \{ precise, districts \} = splitCityMapPoints/);
+  assert.match(mapSource, /new AMap\.MarkerCluster\(map, cityPoints/);
+  assert.match(mapSource, /const point = findMarkerPoint\(context\.marker, points\)/);
+  assert.match(mapSource, /context\.marker\.setzIndex\?\.\(kind === "case" \? 240 : 220\)/);
+  assert.match(mapSource, /context\.marker\.setzIndex\?\.\(point\.active \? 320 : 260\)/);
+  assert.equal((mapSource.match(/zIndex: 5,/g) || []).length, 2);
+  assert.doesNotMatch(mapSource, /zIndex: (?:70|80),/);
+  assert.match(mapSource, /createCaseMarkerElement\(selectedPoint/);
+  assert.match(mapSource, /全域应用或待核验项目不生成普通 POI/);
   assert.doesNotMatch(mapSource, /InfoWindow/);
   assert.match(mapSource, /map\.setZoomAndCenter\(/);
   assert.match(mapSource, /Administrative navigation owns the camera/);
@@ -263,7 +273,7 @@ test("keeps the V1.3 public home available as a legacy archive", async () => {
   assert.match(html, /返回新版/);
 });
 
-test("uses only documented MarkerCluster render callback fields", async () => {
+test("clusters cases in city mid views and fits the national camera to China", async () => {
   const source = await readFile(
     new URL("../components/amap-case-map.tsx", import.meta.url),
     "utf8",
@@ -272,6 +282,24 @@ test("uses only documented MarkerCluster render callback fields", async () => {
   assert.doesNotMatch(source, /context\.data/);
   assert.match(source, /context\.marker/);
   assert.match(source, /context\.count/);
+  assert.match(source, /displayMode === "city"/);
+  assert.match(source, /splitCityMapPoints/);
+  assert.match(source, /maxZoom: 11/);
+  assert.match(source, /createClusterMarker\(AMap, context, "case"\)/);
+  assert.match(source, /context\.clusterData/);
+  assert.match(source, /search\.search\("中国"/);
+  assert.match(source, /map\.setFitView\(polygons/);
+  assert.match(source, /amap-district-marker/);
+});
+
+test("keeps national, Guangdong and Shenzhen return controls plus the desktop AI assistant", async () => {
+  const workbench = await readFile(new URL("../app/workbench/page.tsx", import.meta.url), "utf8");
+  const styles = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
+  assert.match(workbench, />\s*全国\s*</);
+  assert.match(workbench, />\s*广东省\s*</);
+  assert.match(workbench, />\s*深圳市\s*</);
+  assert.match(workbench, /RESEARCH ASSISTANT/);
+  assert.match(styles, /@media \(min-width: 1024px\)[\s\S]*?\.workbench-panel-right[\s\S]*?translateX\(0\) !important/);
 });
 
 test("keeps the immersive paged case reader available for future imported cases", async () => {
