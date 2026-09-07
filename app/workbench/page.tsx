@@ -16,7 +16,7 @@ import type { CaseParserResponse } from "@/lib/ai-case-parser";
 import { MAX_CASE_SOURCE_CHARACTERS } from "@/lib/ai-case-parser";
 import { cityStats } from "@/lib/case-analytics";
 import { publishedCaseAssets } from "@/lib/case-assets";
-import { indexedCases, indexedCaseStats } from "@/lib/case-index";
+import { indexedCases } from "@/lib/case-index";
 import { getLocalCases, removeLocalCase, saveLocalCase } from "@/lib/local-cases";
 import { getPublishedCases } from "@/lib/mock-cases";
 import { parseReportFile } from "@/lib/report-file-import";
@@ -109,8 +109,12 @@ function matchesKeyword(item: SmartCityCase, keyword: string) {
     item.category,
     item.summary,
     item.owner,
+    item.expertView,
+    item.researchReport,
     ...(item.aiTags ?? []),
     ...(item.solution ?? []),
+    ...(item.painPoints ?? []),
+    ...(item.outcomes ?? []),
   ]
     .filter(Boolean)
     .join(" ")
@@ -566,6 +570,16 @@ export default function MapWorkbench() {
   );
   const allYears = useMemo(
     () => Array.from(new Set(publishedCases.map((item) => item.year))).sort((a, b) => b - a),
+    [publishedCases],
+  );
+  // 角标统计与目录、地图使用同一公开案例集口径，避免“已收录”数字与实际可浏览案例数对不上
+  const publishedMappableCount = useMemo(
+    () =>
+      publishedCases.filter((item) => {
+        const lng = Number(item.lng);
+        const lat = Number(item.lat);
+        return Number.isFinite(lng) && Number.isFinite(lat) && Math.abs(lng) <= 180 && Math.abs(lat) <= 90;
+      }).length,
     [publishedCases],
   );
   const provinces = provinceOptions;
@@ -1220,10 +1234,10 @@ export default function MapWorkbench() {
 
           <div className="pointer-events-none absolute right-3 top-3 z-10 rounded-lg border border-slate-200 bg-white/95 px-3 py-2 text-right shadow-sm backdrop-blur-sm">
             <p className="text-[11px] font-semibold text-slate-800">
-              已收录 {indexedCaseStats.total.toLocaleString("zh-CN")} 个真实项目索引
+              已收录 {publishedCases.length.toLocaleString("zh-CN")} 个案例
             </p>
             <p className="mt-0.5 text-[10px] text-slate-500">
-              {indexedCaseStats.mappable.toLocaleString("zh-CN")} 个空间点位 · {activeProvince === "全部" ? "全国" : activeProvince}
+              {publishedMappableCount.toLocaleString("zh-CN")} 个空间点位 · {activeProvince === "全部" ? "全国" : activeProvince}
               {activeCity !== "全部" ? ` / ${activeCity}` : ""} 当前 {visibleCases.length} 项
             </p>
           </div>
